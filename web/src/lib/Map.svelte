@@ -11,7 +11,6 @@
     type MapMouseEvent,
   } from 'maplibre-gl';
   import 'maplibre-gl/dist/maplibre-gl.css';
-  import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
   import { Protocol } from 'pmtiles';
   import { noLabels } from 'protomaps-themes-base';
   import type { CatchSummary } from './api';
@@ -20,7 +19,10 @@
   // runtime, which Vite has no way to see and copy into the build output —
   // without this, the worker 404s in production (Vite's dev server serves
   // node_modules directly, which is why this only breaks once deployed).
-  setWorkerUrl(maplibreWorkerUrl);
+  // The worker file itself statically imports a sibling maplibre-gl-shared.mjs,
+  // so both are copied unhashed into dist/assets/ (see vite.config.ts) and
+  // referenced here by that fixed, known path.
+  setWorkerUrl('/assets/maplibre-gl-worker.mjs');
 
   let {
     catches,
