@@ -7,12 +7,20 @@
     Marker,
     addProtocol,
     removeProtocol,
+    setWorkerUrl,
     type MapMouseEvent,
   } from 'maplibre-gl';
   import 'maplibre-gl/dist/maplibre-gl.css';
+  import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
   import { Protocol } from 'pmtiles';
   import { noLabels } from 'protomaps-themes-base';
   import type { CatchSummary } from './api';
+
+  // maplibre-gl resolves its worker script relative to its own bundle URL at
+  // runtime, which Vite has no way to see and copy into the build output —
+  // without this, the worker 404s in production (Vite's dev server serves
+  // node_modules directly, which is why this only breaks once deployed).
+  setWorkerUrl(maplibreWorkerUrl);
 
   let {
     catches,
