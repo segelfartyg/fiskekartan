@@ -25,6 +25,11 @@ spec:
                 secretKeyRef:
                   name: {{ include "fiskekartan.fullname" . }}
                   key: DATABASE_URL
+            - name: MINIO_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "fiskekartan.fullname" . }}
+                  key: MINIO_ENDPOINT
             - name: MINIO_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
@@ -35,8 +40,6 @@ spec:
                 secretKeyRef:
                   name: {{ include "fiskekartan.fullname" . }}
                   key: MINIO_SECRET_KEY
-            - name: MINIO_ENDPOINT
-              value: {{ .Values.minioEndpoint | quote }}
             - name: MINIO_BUCKET
               value: {{ .Values.minioBucket | quote }}
             - name: MINIO_USE_SSL

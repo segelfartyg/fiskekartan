@@ -7,11 +7,11 @@ image:
 # injects the real values from an out-of-band Kubernetes Secret at release
 # time. Never set real credentials in this file.
 databaseUrl: ""
+minioEndpoint: ""
 minioAccessKey: ""
 minioSecretKey: ""
 
 # Non-secret config, passed straight through as env vars.
-minioEndpoint: ""
 minioBucket: "fiskekartan-images"
 minioUseSSL: "false"
 oidcIssuerUrl: ""
