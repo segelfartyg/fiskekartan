@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "keycloak-js": "^26.2.4",
+    "maplibre-contour": "^0.1.0",
     "maplibre-gl": "^6.4.0",
     "pmtiles": "^4.5.0",
     "protomaps-themes-base": "^4.5.0"
