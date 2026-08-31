@@ -1,0 +1,15 @@
+services:
+  fiskekartan:
+    build: .
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required, e.g. postgres://user:pass@host:5435/fiskekartan?sslmode=disable}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:?MINIO_ENDPOINT is required, e.g. your-minio-host:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?MINIO_ACCESS_KEY is required}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?MINIO_SECRET_KEY is required}
+      MINIO_BUCKET: ${MINIO_BUCKET:-fiskekartan-images}
+      MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:?OIDC_ISSUER_URL is required, e.g. https://auth.example.com/realms/your-realm}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:?OIDC_AUDIENCE is required, e.g. fiskekartan}
+    ports:
+      - "8080:8080"

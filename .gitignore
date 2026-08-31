@@ -1,0 +1,9 @@
+# Go
+/fiskekartan
+
+# Frontend build output (built by Dockerfile / npm run build)
+/web/node_modules/
+/web/dist/
+
+# Env files
+.env
