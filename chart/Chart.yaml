@@ -1,0 +1,6 @@
+apiVersion: v2
+name: fiskekartan
+description: Fiskekartan — self-hosted fish-catch logger (map, photos, catch details).
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

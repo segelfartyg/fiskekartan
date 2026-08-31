@@ -16,7 +16,7 @@ COPY --from=web-build /web/dist ./web/dist
 RUN CGO_ENABLED=0 go build -o /out/fiskekartan .
 
 FROM alpine:3.20
-RUN adduser -D -u 1000 app
+RUN apk add --no-cache ca-certificates && adduser -D -u 1000 app
 COPY --from=go-build /out/fiskekartan /usr/local/bin/fiskekartan
 USER app
 EXPOSE 8080

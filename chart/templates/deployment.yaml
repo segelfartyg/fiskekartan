@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "fiskekartan.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "fiskekartan.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "fiskekartan.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "fiskekartan.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: fiskekartan
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "fiskekartan.fullname" . }}
+                  key: DATABASE_URL
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "fiskekartan.fullname" . }}
+                  key: MINIO_ACCESS_KEY
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "fiskekartan.fullname" . }}
+                  key: MINIO_SECRET_KEY
+            - name: MINIO_ENDPOINT
+              value: {{ .Values.minioEndpoint | quote }}
+            - name: MINIO_BUCKET
+              value: {{ .Values.minioBucket | quote }}
+            - name: MINIO_USE_SSL
+              value: {{ .Values.minioUseSSL | quote }}
+            - name: OIDC_ISSUER_URL
+              value: {{ .Values.oidcIssuerUrl | quote }}
+            - name: OIDC_AUDIENCE
+              value: {{ .Values.oidcAudience | quote }}
+          ports:
+            - containerPort: {{ .Values.service.port }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

@@ -69,19 +69,15 @@ VITE_KEYCLOAK_REALM=<realm>
 VITE_KEYCLOAK_CLIENT_ID=fiskekartan
 ```
 
-## Running
+## Deployment
 
-This app is standalone — it does **not** bundle Postgres or MinIO. Point it at whatever instances you already have running (e.g. on other machines on your network).
+This app deploys as a single Kubernetes Deployment (the `chart/` in this repo) into `segel-cluster`, the same way `sms-backend` does:
 
-```bash
-cp .env.example .env
-# edit .env: DATABASE_URL, MINIO_*, OIDC_ISSUER_URL/OIDC_AUDIENCE
-docker compose up --build
-```
+- **CI** (`.github/workflows/docker.yml`): on every push to `main`, builds this repo's `Dockerfile` and pushes `segelfartyg/fiskekartan:latest` (+ semver tags on `v*` tags) to Docker Hub.
+- **Chart** (`chart/`): one `Deployment` + `Service`, no volumes — everything the app needs (Postgres, MinIO, Keycloak) is external. `DATABASE_URL`/`MINIO_ACCESS_KEY`/`MINIO_SECRET_KEY` come from a Kubernetes Secret via the `HelmRelease`'s `valuesFrom` (never committed here); the rest are plain chart values. See `chart/values.yaml` for the full list.
+- **SegelCluster side**: a `GitRepository` + `HelmRelease` (sourcing `chart/` from this repo) + an `HTTPRoute` for external exposure, matching `sms-backend`'s manifests.
 
-- App: http://localhost:8080
-
-Both uploaded photos and the map tile file live in MinIO — nothing in this repo's directory is used for runtime storage.
+Shipping a change is just `git push` — Flux picks it up from there. There's no local `docker compose up` path anymore; use `go run .` / `npm run dev` (below) for local development instead.
 
 ## Development
 
