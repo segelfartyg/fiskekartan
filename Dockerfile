@@ -2,6 +2,14 @@
 
 FROM node:22-alpine AS web-build
 WORKDIR /web
+# Vite bakes these into the JS bundle at build time, so they must be present
+# here — web/.env is gitignored and never reaches this build context.
+ARG VITE_KEYCLOAK_URL=https://auth.swaren.se
+ARG VITE_KEYCLOAK_REALM=segel-cluster
+ARG VITE_KEYCLOAK_CLIENT_ID=fiskekartan
+ENV VITE_KEYCLOAK_URL=$VITE_KEYCLOAK_URL \
+    VITE_KEYCLOAK_REALM=$VITE_KEYCLOAK_REALM \
+    VITE_KEYCLOAK_CLIENT_ID=$VITE_KEYCLOAK_CLIENT_ID
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
 COPY web/ ./
