@@ -3,6 +3,7 @@
   import Map from './lib/Map.svelte';
   import CatchForm from './lib/CatchForm.svelte';
   import CatchDetailPanel from './lib/CatchDetail.svelte';
+  import LureBox from './lib/LureBox.svelte';
   import { listCatches, getCatch, type CatchSummary, type CatchDetail } from './lib/api';
   import { authState, login, logout } from './lib/auth.svelte';
 
@@ -10,16 +11,23 @@
   let newCatchLocation: { lat: number; lng: number } | null = $state(null);
   let selectedCatch: CatchDetail | null = $state(null);
   let loadError = $state('');
+  let mineOnly = $state(false);
+  let showLurebox = $state(false);
 
   onMount(refresh);
 
   async function refresh() {
     try {
-      catches = await listCatches();
+      catches = await listCatches({ mine: mineOnly });
       loadError = '';
     } catch (err) {
       loadError = err instanceof Error ? err.message : 'Failed to load catches';
     }
+  }
+
+  function toggleMineOnly() {
+    mineOnly = !mineOnly;
+    refresh();
   }
 
   function handleMapClick(lng: number, lat: number) {
@@ -45,6 +53,16 @@
     selectedCatch = null;
     refresh();
   }
+
+  function handleLogout() {
+    logout();
+    // Otherwise a lingering "mine only" filter would keep requesting
+    // ?mine=true with no token and 401 forever.
+    if (mineOnly) {
+      mineOnly = false;
+      refresh();
+    }
+  }
 </script>
 
 <main>
@@ -52,9 +70,16 @@
 
   <p class="hint">Click anywhere on the map to log a catch there.</p>
 
-  <button class="auth-pill" onclick={authState.authenticated ? logout : login}>
+  <button class="auth-pill" onclick={authState.authenticated ? handleLogout : login}>
     {authState.authenticated ? 'Log out' : 'Log in'}
   </button>
+
+  {#if authState.authenticated}
+    <button class="mine-toggle" class:active={mineOnly} onclick={toggleMineOnly}>
+      {mineOnly ? 'Showing: mine only' : 'Showing: everyone'}
+    </button>
+    <button class="lurebox-pill" onclick={() => (showLurebox = true)}>My lures</button>
+  {/if}
 
   {#if loadError}
     <p class="banner">{loadError}</p>
@@ -76,6 +101,10 @@
       onDeleted={handleDeleted}
     />
   {/if}
+
+  {#if showLurebox}
+    <LureBox onClose={() => (showLurebox = false)} />
+  {/if}
 </main>
 
 <style>
@@ -87,7 +116,9 @@
 
   .hint,
   .banner,
-  .auth-pill {
+  .auth-pill,
+  .mine-toggle,
+  .lurebox-pill {
     position: absolute;
     z-index: 5;
     background: white;
@@ -103,12 +134,32 @@
     left: 12px;
   }
 
-  .auth-pill {
-    top: 50px;
-    left: 12px;
+  .auth-pill,
+  .mine-toggle,
+  .lurebox-pill {
     border: none;
     font: inherit;
     cursor: pointer;
+  }
+
+  .auth-pill {
+    top: 50px;
+    left: 12px;
+  }
+
+  .mine-toggle {
+    top: 88px;
+    left: 12px;
+  }
+
+  .mine-toggle.active {
+    background: #2e7d32;
+    color: white;
+  }
+
+  .lurebox-pill {
+    top: 126px;
+    left: 12px;
   }
 
   .banner {

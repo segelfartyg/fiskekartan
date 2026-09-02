@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { createCatch, ApiError } from './api';
-  import { login } from './auth.svelte';
+  import { onMount } from 'svelte';
+  import { createCatch, listMyLures, ApiError, type Lure } from './api';
+  import { authState, login } from './auth.svelte';
 
   let {
     latitude,
@@ -18,6 +19,8 @@
   let weightGrams: number | undefined = $state(undefined);
   let lengthCm: number | undefined = $state(undefined);
   let baitLure = $state('');
+  let selectedLureId = $state('');
+  let lures: Lure[] = $state([]);
   let technique = $state('');
   let waterType = $state('');
   let notes = $state('');
@@ -33,6 +36,20 @@
   let submitting = $state(false);
   let error = $state('');
   let needsLogin = $state(false);
+
+  onMount(async () => {
+    if (!authState.authenticated) return;
+    try {
+      lures = await listMyLures();
+    } catch {
+      // Non-critical — the form still works with free-text bait/lure.
+    }
+  });
+
+  function handleLureSelect() {
+    const lure = lures.find((l) => l.id === selectedLureId);
+    if (lure) baitLure = lure.title;
+  }
 
   function toLocalDateTimeInput(d: Date): string {
     const pad = (n: number) => String(n).padStart(2, '0');
@@ -64,6 +81,7 @@
       setIfPresent(form, 'weight_grams', weightGrams);
       setIfPresent(form, 'length_cm', lengthCm);
       setIfPresent(form, 'bait_lure', baitLure);
+      setIfPresent(form, 'lure_id', selectedLureId);
       setIfPresent(form, 'technique', technique);
       setIfPresent(form, 'water_type', waterType);
       setIfPresent(form, 'notes', notes);
@@ -135,6 +153,18 @@
         <input type="text" bind:value={technique} placeholder="spinning, fly, trolling..." />
       </label>
     </div>
+
+    {#if lures.length > 0}
+      <label>
+        From your lurebox
+        <select bind:value={selectedLureId} onchange={handleLureSelect}>
+          <option value="">Custom (type above)</option>
+          {#each lures as lure (lure.id)}
+            <option value={lure.id}>{lure.title}</option>
+          {/each}
+        </select>
+      </label>
+    {/if}
 
     <label>
       Water type
@@ -257,6 +287,7 @@
   }
 
   input,
+  select,
   textarea {
     font: inherit;
     padding: 6px 8px;

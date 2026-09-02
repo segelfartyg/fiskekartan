@@ -23,6 +23,23 @@ type Catch struct {
 	CreatedAt            time.Time `json:"created_at"`
 	UpdatedAt            time.Time `json:"updated_at"`
 	Images               []string  `json:"images,omitempty"`
+
+	// Raw ownership fields — never serialized directly. Get responds with
+	// CatchResponse instead, which derives what the viewer is actually
+	// allowed to see from these.
+	OwnerSub         *string `json:"-"`
+	OwnerDisplayName *string `json:"-"`
+	LureID           *string `json:"-"`
+}
+
+// CatchResponse is what GET /api/catches/{id} actually returns: the raw
+// Catch plus fields derived relative to the requesting viewer, so a raw
+// owner_sub is never exposed over HTTP.
+type CatchResponse struct {
+	Catch
+	OwnedByMe bool    `json:"owned_by_me"`
+	HasOwner  bool    `json:"has_owner"`
+	LoggedBy  *string `json:"logged_by,omitempty"`
 }
 
 // CatchSummary is the lightweight shape used for map pins.
@@ -53,4 +70,7 @@ type CreateInput struct {
 	WeatherCloudCover    *string
 	WaterTempC           *float64
 	ImageFilePaths       []string
+	OwnerSub             string
+	OwnerDisplayName     *string
+	LureID               *string
 }

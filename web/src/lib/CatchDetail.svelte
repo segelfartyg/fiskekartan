@@ -38,6 +38,11 @@
     <button class="close" onclick={onClose} aria-label="Close">×</button>
     <h2>{catchData.species}</h2>
     <p class="meta">{new Date(catchData.caught_at).toLocaleString()}</p>
+    {#if catchData.owned_by_me}
+      <p class="attribution">Logged by you</p>
+    {:else if catchData.has_owner}
+      <p class="attribution">Logged by {catchData.logged_by ?? 'another angler'}</p>
+    {/if}
 
     {#if catchData.images?.length}
       <div class="images">
@@ -71,11 +76,13 @@
       </p>
     {/if}
 
-    <div class="actions">
-      <button type="button" class="delete" onclick={handleDelete} disabled={deleting}>
-        {deleting ? 'Deleting…' : 'Delete catch'}
-      </button>
-    </div>
+    {#if catchData.owned_by_me}
+      <div class="actions">
+        <button type="button" class="delete" onclick={handleDelete} disabled={deleting}>
+          {deleting ? 'Deleting…' : 'Delete catch'}
+        </button>
+      </div>
+    {/if}
   </div>
 </div>
 
@@ -125,7 +132,13 @@
 
   .meta {
     opacity: 0.7;
-    margin: 4px 0 16px;
+    margin: 4px 0;
+  }
+
+  .attribution {
+    opacity: 0.7;
+    font-size: 0.85rem;
+    margin: 0 0 16px;
   }
 
   .images {

@@ -1,6 +1,7 @@
 package catch
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"swaren.se/fiskekartan/internal/authmw"
 	"swaren.se/fiskekartan/internal/imagestore"
 )
 
@@ -21,17 +23,35 @@ type ImageStore interface {
 	Open(name string) (content imagestore.ReadSeekCloser, contentType string, modTime time.Time, err error)
 }
 
+// LureVerifier is satisfied by *lure.Repository — checking ownership here
+// rather than importing internal/lure keeps catch and lure independent
+// siblings with no dependency between them.
+type LureVerifier interface {
+	OwnedBy(ctx context.Context, lureID, ownerSub string) (bool, error)
+}
+
 type Handlers struct {
 	repo   *Repository
 	images ImageStore
+	lures  LureVerifier
 }
 
-func NewHandlers(repo *Repository, images ImageStore) *Handlers {
-	return &Handlers{repo: repo, images: images}
+func NewHandlers(repo *Repository, images ImageStore, lures LureVerifier) *Handlers {
+	return &Handlers{repo: repo, images: images, lures: lures}
 }
 
 func (h *Handlers) List(w http.ResponseWriter, r *http.Request) {
-	list, err := h.repo.List(r.Context())
+	var ownerSub *string
+	if r.URL.Query().Get("mine") == "true" {
+		sub, ok := authmw.SubFromContext(r.Context())
+		if !ok {
+			http.Error(w, "must be logged in to filter by mine", http.StatusUnauthorized)
+			return
+		}
+		ownerSub = &sub
+	}
+
+	list, err := h.repo.List(r.Context(), ownerSub)
 	if err != nil {
 		http.Error(w, "failed to list catches", http.StatusInternalServerError)
 		return
@@ -50,7 +70,15 @@ func (h *Handlers) Get(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	writeJSON(w, http.StatusOK, c)
+
+	sub, _ := authmw.SubFromContext(r.Context())
+	resp := CatchResponse{
+		Catch:     *c,
+		OwnedByMe: c.OwnerSub != nil && sub == *c.OwnerSub,
+		HasOwner:  c.OwnerSub != nil,
+		LoggedBy:  c.OwnerDisplayName,
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *Handlers) Delete(w http.ResponseWriter, r *http.Request) {
@@ -63,6 +91,12 @@ func (h *Handlers) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 	if c == nil {
 		http.NotFound(w, r)
+		return
+	}
+
+	sub, _ := authmw.SubFromContext(r.Context())
+	if c.OwnerSub == nil || *c.OwnerSub != sub {
+		http.Error(w, "you can only delete your own catches", http.StatusForbidden)
 		return
 	}
 
@@ -134,6 +168,24 @@ func (h *Handlers) Create(w http.ResponseWriter, r *http.Request) {
 		caughtAt = parsed
 	}
 
+	// Guaranteed present — this route stays behind requireAuth. The owner
+	// always comes from the verified token, never a client-supplied field.
+	claims, _ := authmw.ClaimsFromContext(r.Context())
+
+	var lureID *string
+	if v := r.FormValue("lure_id"); v != "" {
+		owned, err := h.lures.OwnedBy(r.Context(), v, claims.Sub)
+		if err != nil {
+			http.Error(w, "failed to verify lure", http.StatusInternalServerError)
+			return
+		}
+		if !owned {
+			http.Error(w, "lure_id does not belong to you", http.StatusBadRequest)
+			return
+		}
+		lureID = &v
+	}
+
 	in := CreateInput{
 		Species:              species,
 		WeightGrams:          parseOptionalInt(r.FormValue("weight_grams")),
@@ -151,6 +203,9 @@ func (h *Handlers) Create(w http.ResponseWriter, r *http.Request) {
 		WeatherPressureHPa:   parseOptionalFloat(r.FormValue("weather_pressure_hpa")),
 		WeatherCloudCover:    parseOptionalString(r.FormValue("weather_cloud_cover")),
 		WaterTempC:           parseOptionalFloat(r.FormValue("water_temp_c")),
+		OwnerSub:             claims.Sub,
+		OwnerDisplayName:     firstNonEmpty(claims.PreferredUsername, claims.Name),
+		LureID:               lureID,
 	}
 
 	var files []*multipart.FileHeader
@@ -186,6 +241,17 @@ func parseOptionalString(v string) *string {
 		return nil
 	}
 	return &v
+}
+
+// firstNonEmpty returns a pointer to a, or b if a is empty, or nil if both are.
+func firstNonEmpty(a, b string) *string {
+	if a != "" {
+		return &a
+	}
+	if b != "" {
+		return &b
+	}
+	return nil
 }
 
 func parseOptionalInt(v string) *int {
