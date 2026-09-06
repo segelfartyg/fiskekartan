@@ -197,6 +197,14 @@
       el.className = 'pin';
       el.type = 'button';
       el.setAttribute('aria-label', c.species);
+      // The rotated teardrop shape lives on this inner span rather than on
+      // `el` itself — maplibre sets its own inline `transform` on the marker
+      // root element for positioning, which would silently clobber any
+      // `transform` (e.g. our rotate) applied via stylesheet to the same
+      // element.
+      const shape = document.createElement('span');
+      shape.className = 'pin-shape';
+      el.appendChild(shape);
       el.addEventListener('click', (evt) => {
         evt.stopPropagation();
         onPinClick(c.id);
@@ -218,14 +226,34 @@
   }
 
   :global(.pin) {
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
+    border: none;
+    background: none;
+    padding: 0;
+    cursor: pointer;
+  }
+
+  :global(.pin-shape) {
+    display: block;
+    width: 100%;
+    height: 100%;
     border-radius: 50% 50% 50% 0;
     transform: rotate(-45deg);
-    background: #e0433d;
+    background: linear-gradient(135deg, #34d399, #0b7a44);
     border: 2px solid white;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
-    cursor: pointer;
-    padding: 0;
+    box-shadow:
+      0 2px 6px rgba(0, 0, 0, 0.35),
+      0 0 0 3px rgba(16, 161, 90, 0.18);
+    transition:
+      transform 150ms cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 150ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  :global(.pin:hover .pin-shape) {
+    transform: rotate(-45deg) scale(1.15);
+    box-shadow:
+      0 3px 10px rgba(0, 0, 0, 0.4),
+      0 0 0 5px rgba(16, 161, 90, 0.22);
   }
 </style>

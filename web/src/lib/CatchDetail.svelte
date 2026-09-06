@@ -90,44 +90,67 @@
   .backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.4);
+    background: rgba(15, 23, 42, 0.45);
+    backdrop-filter: blur(2px);
     display: flex;
     justify-content: flex-end;
     z-index: 20;
+    animation: fade-in 180ms var(--ease);
   }
 
   .panel {
     position: relative;
-    background: var(--panel-bg, #fff);
-    color: var(--panel-fg, #111);
+    background: var(--surface-solid, #fff);
+    color: var(--surface-fg, #111);
     width: min(420px, 100%);
     height: 100%;
     overflow-y: auto;
-    padding: 20px;
+    padding: 24px;
     box-sizing: border-box;
+    box-shadow: var(--shadow-md);
+    border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+    animation: slide-in 220ms var(--ease);
   }
 
-  @media (prefers-color-scheme: dark) {
-    .panel {
-      --panel-bg: #1c1d24;
-      --panel-fg: #eee;
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+
+  @keyframes slide-in {
+    from {
+      transform: translateX(24px);
+      opacity: 0;
     }
   }
 
   .close {
     position: absolute;
-    top: 12px;
-    right: 12px;
-    font-size: 1.4rem;
+    top: 14px;
+    right: 14px;
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    font-size: 1.2rem;
     line-height: 1;
-    background: none;
+    background: var(--border-soft);
+    border-radius: 999px;
     border: none;
     cursor: pointer;
     color: inherit;
+    transition: background 150ms var(--ease);
+  }
+
+  .close:hover {
+    background: rgba(224, 52, 92, 0.18);
+    color: var(--color-danger);
   }
 
   h2 {
     margin: 0 32px 0 0;
+    font-weight: 800;
   }
 
   .meta {
@@ -150,19 +173,22 @@
 
   .images img {
     width: 100%;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     display: block;
+    box-shadow: var(--shadow-sm);
   }
 
   dl {
     display: grid;
     grid-template-columns: auto 1fr;
-    gap: 4px 12px;
+    gap: 6px 12px;
     margin: 0;
   }
 
   dt {
-    opacity: 0.7;
+    opacity: 0.6;
+    font-weight: 600;
+    font-size: 0.85rem;
   }
 
   dd {
@@ -170,7 +196,7 @@
   }
 
   .error {
-    color: #c0392b;
+    color: var(--color-danger);
     margin: 12px 0 0;
   }
 
@@ -194,12 +220,21 @@
 
   .delete {
     font: inherit;
-    padding: 8px 16px;
-    border-radius: 6px;
-    border: 1px solid #c0392b;
+    font-weight: 600;
+    padding: 9px 18px;
+    border-radius: 999px;
+    border: 1px solid var(--color-danger);
     background: none;
-    color: #c0392b;
+    color: var(--color-danger);
     cursor: pointer;
+    transition:
+      background 150ms var(--ease),
+      transform 150ms var(--ease);
+  }
+
+  .delete:hover:not(:disabled) {
+    background: rgba(224, 52, 92, 0.1);
+    transform: translateY(-1px);
   }
 
   .delete:disabled {

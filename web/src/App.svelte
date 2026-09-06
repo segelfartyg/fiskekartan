@@ -68,18 +68,25 @@
 <main>
   <Map {catches} onMapClick={handleMapClick} onPinClick={handlePinClick} />
 
+  <div class="brand">
+    <span class="brand-mark">🎣</span>
+    <span class="brand-name">Fiskekartan</span>
+  </div>
+
   <p class="hint">Click anywhere on the map to log a catch there.</p>
 
-  <button class="auth-pill" onclick={authState.authenticated ? handleLogout : login}>
-    {authState.authenticated ? 'Log out' : 'Log in'}
-  </button>
-
-  {#if authState.authenticated}
-    <button class="mine-toggle" class:active={mineOnly} onclick={toggleMineOnly}>
-      {mineOnly ? 'Showing: mine only' : 'Showing: everyone'}
+  <div class="control-stack">
+    <button class="pill auth-pill" onclick={authState.authenticated ? handleLogout : login}>
+      {authState.authenticated ? 'Log out' : 'Log in'}
     </button>
-    <button class="lurebox-pill" onclick={() => (showLurebox = true)}>My lures</button>
-  {/if}
+
+    {#if authState.authenticated}
+      <button class="pill mine-toggle" class:active={mineOnly} onclick={toggleMineOnly}>
+        {mineOnly ? 'Showing: mine only' : 'Showing: everyone'}
+      </button>
+      <button class="pill lurebox-pill" onclick={() => (showLurebox = true)}>My lures</button>
+    {/if}
+  </div>
 
   {#if loadError}
     <p class="banner">{loadError}</p>
@@ -114,19 +121,53 @@
     height: 100vh;
   }
 
-  .hint,
-  .banner,
-  .auth-pill,
-  .mine-toggle,
-  .lurebox-pill {
+  .brand {
     position: absolute;
     z-index: 5;
-    background: white;
-    color: #111;
-    padding: 6px 10px;
-    border-radius: 6px;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--surface);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: var(--surface-fg);
+    padding: 8px 16px;
+    border-radius: 999px;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border-soft);
+    pointer-events: none;
+  }
+
+  .brand-mark {
+    font-size: 1.1rem;
+  }
+
+  .brand-name {
+    font-weight: 800;
+    font-size: 0.95rem;
+    letter-spacing: 0.02em;
+    background: linear-gradient(135deg, var(--color-primary-light), var(--color-primary-dark));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .hint,
+  .banner {
+    position: absolute;
+    z-index: 5;
+    background: var(--surface);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: var(--surface-fg);
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
     font-size: 0.85rem;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border-soft);
   }
 
   .hint {
@@ -134,38 +175,50 @@
     left: 12px;
   }
 
-  .auth-pill,
-  .mine-toggle,
-  .lurebox-pill {
-    border: none;
-    font: inherit;
-    cursor: pointer;
-  }
-
-  .auth-pill {
+  .control-stack {
+    position: absolute;
+    z-index: 5;
     top: 50px;
     left: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
 
-  .mine-toggle {
-    top: 88px;
-    left: 12px;
+  .pill {
+    border: 1px solid var(--border-soft);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    background: var(--surface);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: var(--surface-fg);
+    padding: 7px 14px;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    box-shadow: var(--shadow-sm);
+    transition:
+      transform 150ms var(--ease),
+      box-shadow 150ms var(--ease),
+      background 150ms var(--ease);
+  }
+
+  .pill:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
   }
 
   .mine-toggle.active {
-    background: #2e7d32;
+    background: linear-gradient(135deg, var(--color-primary-light), var(--color-primary-dark));
     color: white;
-  }
-
-  .lurebox-pill {
-    top: 126px;
-    left: 12px;
+    border-color: transparent;
   }
 
   .banner {
     top: 12px;
     right: 12px;
-    background: #fee;
-    color: #900;
+    color: var(--color-danger);
+    font-weight: 600;
   }
 </style>

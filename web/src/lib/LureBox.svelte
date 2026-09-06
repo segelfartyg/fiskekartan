@@ -129,47 +129,70 @@
   .backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.4);
+    background: rgba(15, 23, 42, 0.45);
+    backdrop-filter: blur(2px);
     display: flex;
     justify-content: flex-end;
     z-index: 20;
+    animation: fade-in 180ms var(--ease);
   }
 
   .panel {
     position: relative;
-    background: var(--panel-bg, #fff);
-    color: var(--panel-fg, #111);
+    background: var(--surface-solid, #fff);
+    color: var(--surface-fg, #111);
     width: min(420px, 100%);
     height: 100%;
     overflow-y: auto;
-    padding: 20px;
+    padding: 24px;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
     gap: 16px;
+    box-shadow: var(--shadow-md);
+    border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+    animation: slide-in 220ms var(--ease);
   }
 
-  @media (prefers-color-scheme: dark) {
-    .panel {
-      --panel-bg: #1c1d24;
-      --panel-fg: #eee;
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+
+  @keyframes slide-in {
+    from {
+      transform: translateX(24px);
+      opacity: 0;
     }
   }
 
   .close {
     position: absolute;
-    top: 12px;
-    right: 12px;
-    font-size: 1.4rem;
+    top: 14px;
+    right: 14px;
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    font-size: 1.2rem;
     line-height: 1;
-    background: none;
+    background: var(--border-soft);
+    border-radius: 999px;
     border: none;
     cursor: pointer;
     color: inherit;
+    transition: background 150ms var(--ease);
+  }
+
+  .close:hover {
+    background: rgba(224, 52, 92, 0.18);
+    color: var(--color-danger);
   }
 
   h2 {
     margin: 0 32px 0 0;
+    font-weight: 800;
   }
 
   h3 {
@@ -183,7 +206,7 @@
   }
 
   .error {
-    color: #c0392b;
+    color: var(--color-danger);
     margin: 0;
   }
 
@@ -218,8 +241,9 @@
     width: 44px;
     height: 44px;
     object-fit: cover;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     flex-shrink: 0;
+    box-shadow: var(--shadow-sm);
   }
 
   .lure-info {
@@ -238,10 +262,16 @@
     line-height: 1;
     background: none;
     border: none;
-    color: #c0392b;
+    color: var(--color-danger);
     cursor: pointer;
     padding: 4px;
     flex-shrink: 0;
+    border-radius: 999px;
+    transition: background 150ms var(--ease);
+  }
+
+  .remove:hover {
+    background: rgba(224, 52, 92, 0.12);
   }
 
   .add-form {
@@ -249,7 +279,7 @@
     flex-direction: column;
     gap: 10px;
     padding-top: 16px;
-    border-top: 1px solid rgba(128, 128, 128, 0.3);
+    border-top: 1px solid var(--border-soft);
   }
 
   label {
@@ -257,29 +287,56 @@
     flex-direction: column;
     gap: 4px;
     font-size: 0.85rem;
+    font-weight: 600;
   }
 
   input,
   textarea {
     font: inherit;
-    padding: 6px 8px;
-    border-radius: 6px;
-    border: 1px solid #ccc;
+    font-weight: 400;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-soft);
+    background: transparent;
+    color: inherit;
+    transition:
+      border-color 150ms var(--ease),
+      box-shadow 150ms var(--ease);
+  }
+
+  input:focus,
+  textarea:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(16, 161, 90, 0.18);
   }
 
   button[type='submit'] {
     font: inherit;
-    padding: 8px 16px;
-    border-radius: 6px;
-    border: 1px solid #2e7d32;
-    background: #2e7d32;
+    font-weight: 600;
+    padding: 9px 18px;
+    border-radius: 999px;
+    border: none;
+    background: linear-gradient(135deg, var(--color-primary-light), var(--color-primary-dark));
     color: white;
     cursor: pointer;
     align-self: flex-start;
+    box-shadow: var(--shadow-sm);
+    transition:
+      transform 150ms var(--ease),
+      box-shadow 150ms var(--ease),
+      filter 150ms var(--ease);
+  }
+
+  button[type='submit']:hover:not(:disabled) {
+    transform: translateY(-1px);
+    filter: brightness(1.05);
+    box-shadow: var(--shadow-md);
   }
 
   button[type='submit']:disabled {
     opacity: 0.6;
     cursor: default;
+    transform: none;
   }
 </style>

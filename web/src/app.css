@@ -1,6 +1,37 @@
 :root {
   color-scheme: light dark;
-  font: 16px/1.4 system-ui, 'Segoe UI', Roboto, sans-serif;
+  font: 16px/1.4 'Manrope', system-ui, 'Segoe UI', Roboto, sans-serif;
+
+  --color-primary: #10a15a;
+  --color-primary-dark: #0b7a44;
+  --color-primary-light: #4ade80;
+  --color-danger: #e0345c;
+  --color-ink: #0f172a;
+
+  --surface: rgba(255, 255, 255, 0.85);
+  --surface-solid: #ffffff;
+  --surface-fg: #101418;
+  --border-soft: rgba(15, 23, 42, 0.08);
+
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+
+  --shadow-sm: 0 2px 10px rgba(15, 23, 42, 0.12);
+  --shadow-md: 0 12px 32px rgba(15, 23, 42, 0.18);
+
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: rgba(28, 29, 36, 0.85);
+    --surface-solid: #1c1d24;
+    --surface-fg: #eef0f2;
+    --border-soft: rgba(255, 255, 255, 0.08);
+    --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.35);
+    --shadow-md: 0 16px 40px rgba(0, 0, 0, 0.45);
+  }
 }
 
 * {
