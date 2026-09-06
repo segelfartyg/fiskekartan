@@ -6,6 +6,31 @@
   import LureBox from './lib/LureBox.svelte';
   import { listCatches, getCatch, type CatchSummary, type CatchDetail } from './lib/api';
   import { authState, login, logout } from './lib/auth.svelte';
+  import { devTheme } from './lib/dev/devTheme.svelte';
+  import { adjustLightness } from './lib/dev/colorMath';
+  import { themeEditorEnabled } from './lib/dev/testMode';
+  import type { Component } from 'svelte';
+
+  // Dynamically imported (rather than statically) so the panel — and its
+  // color-wheel dependency — code-split into a chunk that's only ever
+  // fetched when the theme editor is actually turned on (local dev, or
+  // `?test=true` in any build), instead of bloating everyone's bundle.
+  let ThemeDevPanel: Component | undefined = $state(undefined);
+  if (themeEditorEnabled) {
+    import('./lib/dev/ThemeDevPanel.svelte').then((m) => (ThemeDevPanel = m.default));
+  }
+
+  // Mirrors devTheme onto the actual CSS custom properties. devTheme's
+  // defaults match the stylesheet's own hardcoded values, so this is a no-op
+  // until the theme editor (loaded further below) changes it — cheap enough
+  // to leave running unconditionally rather than special-case it.
+  $effect(() => {
+    const root = document.documentElement.style;
+    root.setProperty('--color-primary', devTheme.primary);
+    root.setProperty('--color-primary-light', adjustLightness(devTheme.primary, 16));
+    root.setProperty('--color-primary-dark', adjustLightness(devTheme.primary, -16));
+    root.setProperty('--color-danger', devTheme.danger);
+  });
 
   let catches: CatchSummary[] = $state([]);
   let newCatchLocation: { lat: number; lng: number } | null = $state(null);
@@ -111,6 +136,10 @@
 
   {#if showLurebox}
     <LureBox onClose={() => (showLurebox = false)} />
+  {/if}
+
+  {#if ThemeDevPanel}
+    <ThemeDevPanel />
   {/if}
 </main>
 

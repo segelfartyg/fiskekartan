@@ -16,6 +16,8 @@
   import mlcontour from 'maplibre-contour';
   import { noLabelsWithCustomTheme, namedTheme } from 'protomaps-themes-base';
   import type { CatchSummary } from './api';
+  import { devTheme } from './dev/devTheme.svelte';
+  import { themeEditorEnabled } from './dev/testMode';
 
   // maplibre-gl resolves its worker script relative to its own bundle URL at
   // runtime, which Vite has no way to see and copy into the build output —
@@ -38,6 +40,7 @@
 
   let container: HTMLDivElement;
   let map: MapLibreMap | undefined;
+  let mapStyleReady = false;
   const markers = new Map<string, Marker>();
 
   // Sweden, roughly centered.
@@ -52,30 +55,19 @@
   ];
   const MIN_ZOOM = 4;
 
-  onMount(() => {
-    const protocol = new Protocol();
-    addProtocol('pmtiles', protocol.tile);
-
-    // maplibre-contour derives contour geometry client-side from the same
-    // terrain-RGB tiles used for hillshading — no separate contour dataset.
-    const demSource = new mlcontour.DemSource({
-      url: 'https://tiles.mapterhorn.com/{z}/{x}/{y}.webp',
-      encoding: 'terrarium',
-      maxzoom: 12,
-      worker: true,
-    });
-    demSource.setupMaplibre({ addProtocol });
-
-    // Protomaps' default theme is a clean general-purpose style, not a topo
-    // map — nudge land/forest/water toward an "outdoor map" palette so the
-    // hillshade integrates visually instead of looking like a separate
-    // overlay on top of a bright basemap.
+  // Protomaps' default theme is a clean general-purpose style, not a topo
+  // map — nudge land/forest/water toward an "outdoor map" palette so the
+  // hillshade integrates visually instead of looking like a separate
+  // overlay on top of a bright basemap. Reads from devTheme (rather than
+  // hardcoded literals) so the dev-only ThemeDevPanel can re-theme the
+  // basemap live; devTheme's defaults match what used to be hardcoded here.
+  function buildLayers(): LayerSpecification[] {
     const outdoorTheme = {
       ...namedTheme('light'),
-      earth: '#f4efe4',
-      wood_a: '#c8d7b0',
-      wood_b: '#a8c090',
-      water: '#a8c8d8',
+      earth: devTheme.earth,
+      wood_a: devTheme.woodA,
+      wood_b: devTheme.woodB,
+      water: devTheme.water,
     };
     const baseLayers = noLabelsWithCustomTheme('protomaps', outdoorTheme);
     // Hillshade and contours need to sit above land/water fills but below
@@ -89,9 +81,9 @@
         // Sweden is mostly low relief outside the Fjäll region — full
         // exaggeration looks muddy on flat terrain.
         'hillshade-exaggeration': 0.25,
-        'hillshade-shadow-color': '#473B24',
-        'hillshade-highlight-color': '#FFFFFF',
-        'hillshade-accent-color': '#5a6b47',
+        'hillshade-shadow-color': devTheme.hillshadeShadow,
+        'hillshade-highlight-color': devTheme.hillshadeHighlight,
+        'hillshade-accent-color': devTheme.hillshadeAccent,
       },
     };
     const contourLinesLayer: LayerSpecification = {
@@ -100,19 +92,33 @@
       source: 'contours',
       'source-layer': 'contours',
       paint: {
-        'line-color': '#8b7355',
+        'line-color': devTheme.contourLine,
         'line-width': ['match', ['get', 'level'], 1, 1, 0.5],
       },
     };
     const extraLayers = [hillshadeLayer, contourLinesLayer];
-    const layers =
-      firstLineLayerIndex === -1
-        ? [...baseLayers, ...extraLayers]
-        : [
-            ...baseLayers.slice(0, firstLineLayerIndex),
-            ...extraLayers,
-            ...baseLayers.slice(firstLineLayerIndex),
-          ];
+    return firstLineLayerIndex === -1
+      ? [...baseLayers, ...extraLayers]
+      : [
+          ...baseLayers.slice(0, firstLineLayerIndex),
+          ...extraLayers,
+          ...baseLayers.slice(firstLineLayerIndex),
+        ];
+  }
+
+  onMount(() => {
+    const protocol = new Protocol();
+    addProtocol('pmtiles', protocol.tile);
+
+    // maplibre-contour derives contour geometry client-side from the same
+    // terrain-RGB tiles used for hillshading — no separate contour dataset.
+    const demSource = new mlcontour.DemSource({
+      url: 'https://tiles.mapterhorn.com/{z}/{x}/{y}.webp',
+      encoding: 'terrarium',
+      maxzoom: 12,
+      worker: true,
+    });
+    demSource.setupMaplibre({ addProtocol });
 
     const instance = new MapLibreMap({
       container,
@@ -152,7 +158,7 @@
         // Basemap only, no text labels — avoids needing a self-hosted glyphs
         // server just to render place names. (Contour elevation labels are
         // skipped for the same reason.)
-        layers,
+        layers: buildLayers(),
       },
       center: DEFAULT_CENTER,
       zoom: DEFAULT_ZOOM,
@@ -168,6 +174,15 @@
       onMapClick(e.lngLat.lng, e.lngLat.lat);
     });
 
+    if (themeEditorEnabled) {
+      // getStyle() can return an incomplete object (missing `sources`, etc.)
+      // until the initial style has actually finished loading — calling
+      // setStyle with that before 'load' corrupts the map.
+      instance.on('load', () => {
+        mapStyleReady = true;
+      });
+    }
+
     syncMarkers(catches);
 
     return () => {
@@ -181,6 +196,26 @@
   $effect(() => {
     if (map) syncMarkers(catches);
   });
+
+  if (themeEditorEnabled) {
+    // Re-theme the basemap live when the theme editor changes a basemap
+    // color. Reading each devTheme field here (rather than the object as a
+    // whole) is what makes $effect track them individually.
+    $effect(() => {
+      const {
+        earth: _earth,
+        woodA: _woodA,
+        woodB: _woodB,
+        water: _water,
+        hillshadeShadow: _hillshadeShadow,
+        hillshadeHighlight: _hillshadeHighlight,
+        hillshadeAccent: _hillshadeAccent,
+        contourLine: _contourLine,
+      } = devTheme;
+      if (!map || !mapStyleReady) return;
+      map.setStyle({ ...map.getStyle(), layers: buildLayers() }, { diff: true });
+    });
+  }
 
   function syncMarkers(list: CatchSummary[]) {
     if (!map) return;
@@ -240,11 +275,11 @@
     height: 100%;
     border-radius: 50% 50% 50% 0;
     transform: rotate(-45deg);
-    background: linear-gradient(135deg, #34d399, #0b7a44);
+    background: linear-gradient(135deg, var(--color-primary-light), var(--color-primary-dark));
     border: 2px solid white;
     box-shadow:
       0 2px 6px rgba(0, 0, 0, 0.35),
-      0 0 0 3px rgba(16, 161, 90, 0.18);
+      0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
     transition:
       transform 150ms cubic-bezier(0.22, 1, 0.36, 1),
       box-shadow 150ms cubic-bezier(0.22, 1, 0.36, 1);
@@ -254,6 +289,6 @@
     transform: rotate(-45deg) scale(1.15);
     box-shadow:
       0 3px 10px rgba(0, 0, 0, 0.4),
-      0 0 0 5px rgba(16, 161, 90, 0.22);
+      0 0 0 5px color-mix(in srgb, var(--color-primary) 22%, transparent);
   }
 </style>
