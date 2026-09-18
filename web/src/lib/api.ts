@@ -45,6 +45,15 @@ export interface Lure {
   created_at: string;
 }
 
+export interface WeatherSnapshot {
+  weather_temp_c?: number;
+  weather_wind_speed_ms?: number;
+  weather_wind_direction?: string;
+  weather_pressure_hpa?: number;
+  weather_cloud_cover?: string;
+  water_temp_c?: number;
+}
+
 export async function listCatches(opts?: { mine?: boolean }): Promise<CatchSummary[]> {
   const token = await getToken();
   const url = opts?.mine ? '/api/catches?mine=true' : '/api/catches';
@@ -110,6 +119,12 @@ export async function createLure(form: FormData): Promise<{ id: string }> {
     const text = await res.text();
     throw new ApiError(res.status, text || 'Failed to save lure');
   }
+  return res.json();
+}
+
+export async function fetchWeather(lat: number, lon: number): Promise<WeatherSnapshot> {
+  const res = await fetch(`/api/weather?lat=${lat}&lon=${lon}`);
+  if (!res.ok) throw new Error('Failed to load weather');
   return res.json();
 }
 

@@ -10,6 +10,8 @@ import (
 	"swaren.se/fiskekartan/internal/catch"
 	"swaren.se/fiskekartan/internal/imagestore"
 	"swaren.se/fiskekartan/internal/lure"
+	"swaren.se/fiskekartan/internal/smhi"
+	"swaren.se/fiskekartan/internal/weather"
 )
 
 // New builds the full HTTP handler: the JSON API, image/tile serving, and
@@ -20,6 +22,8 @@ func New(pool *pgxpool.Pool, imgStore *imagestore.Store, verifier *oidc.IDTokenV
 
 	repo := catch.NewRepository(pool)
 	handlers := catch.NewHandlers(repo, imgStore, lureRepo)
+
+	weatherHandlers := weather.NewHandlers(smhi.NewClient())
 
 	requireAuth := authmw.RequireAuth(verifier)
 	optionalAuth := authmw.OptionalAuth(verifier)
@@ -34,6 +38,8 @@ func New(pool *pgxpool.Pool, imgStore *imagestore.Store, verifier *oidc.IDTokenV
 	mux.HandleFunc("GET /api/lures", withMiddleware(requireAuth(lureHandlers.List)))
 	mux.HandleFunc("POST /api/lures", withMiddleware(requireAuth(lureHandlers.Create)))
 	mux.HandleFunc("DELETE /api/lures/{id}", withMiddleware(requireAuth(lureHandlers.Delete)))
+
+	mux.HandleFunc("GET /api/weather", withMiddleware(weatherHandlers.Get))
 
 	// Proxied through the backend (rather than presigned MinIO URLs) so the
 	// object store never needs to be reachable from the browser. The same

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { createCatch, listMyLures, ApiError, type Lure } from './api';
+  import { createCatch, listMyLures, fetchWeather, ApiError, type Lure } from './api';
   import { authState, login } from './auth.svelte';
 
   let {
@@ -36,6 +36,8 @@
   let submitting = $state(false);
   let error = $state('');
   let needsLogin = $state(false);
+  let weatherLoading = $state(false);
+  let weatherFetched = $state(false);
 
   onMount(async () => {
     if (!authState.authenticated) return;
@@ -43,6 +45,28 @@
       lures = await listMyLures();
     } catch {
       // Non-critical — the form still works with free-text bait/lure.
+    }
+  });
+
+  onMount(async () => {
+    weatherLoading = true;
+    try {
+      const w = await fetchWeather(latitude, longitude);
+      // Only fill fields the user hasn't already touched — the fetch can
+      // resolve after they've started typing.
+      if (weatherTempC === undefined && w.weather_temp_c != null) weatherTempC = w.weather_temp_c;
+      if (weatherWindSpeedMs === undefined && w.weather_wind_speed_ms != null)
+        weatherWindSpeedMs = w.weather_wind_speed_ms;
+      if (weatherWindDirection === '' && w.weather_wind_direction) weatherWindDirection = w.weather_wind_direction;
+      if (weatherPressureHpa === undefined && w.weather_pressure_hpa != null)
+        weatherPressureHpa = w.weather_pressure_hpa;
+      if (weatherCloudCover === '' && w.weather_cloud_cover) weatherCloudCover = w.weather_cloud_cover;
+      if (waterTempC === undefined && w.water_temp_c != null) waterTempC = w.water_temp_c;
+      weatherFetched = true;
+    } catch {
+      // Non-critical — the fieldset stays editable either way.
+    } finally {
+      weatherLoading = false;
     }
   });
 
@@ -172,7 +196,11 @@
     </label>
 
     <fieldset>
-      <legend>Weather &amp; water</legend>
+      <legend>
+        Weather &amp; water
+        {#if weatherLoading}<span class="weather-status">fetching from SMHI…</span>
+        {:else if weatherFetched}<span class="weather-status">auto-filled from SMHI</span>{/if}
+      </legend>
       <div class="row">
         <label>
           Air temp (°C)
@@ -334,6 +362,13 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
+  }
+
+  .weather-status {
+    font-weight: 400;
+    font-style: italic;
+    opacity: 0.6;
+    margin-left: 6px;
   }
 
   .actions {
