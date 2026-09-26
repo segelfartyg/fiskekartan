@@ -16,6 +16,7 @@ export interface CatchSummary {
   longitude: number;
   caught_at: string;
   thumbnail?: string;
+  pin_color?: string;
 }
 
 export interface CatchDetail extends CatchSummary {
@@ -35,6 +36,17 @@ export interface CatchDetail extends CatchSummary {
   owned_by_me: boolean;
   has_owner: boolean;
   logged_by?: string;
+  logged_by_username?: string;
+}
+
+export interface Profile {
+  username: string;
+  location?: string;
+  description?: string;
+  avatar?: string;
+  pin_color?: string;
+  catch_count: number;
+  created_at: string;
 }
 
 export interface Lure {
@@ -54,10 +66,13 @@ export interface WeatherSnapshot {
   water_temp_c?: number;
 }
 
-export async function listCatches(opts?: { mine?: boolean }): Promise<CatchSummary[]> {
+export async function listCatches(opts?: { mine?: boolean; user?: string }): Promise<CatchSummary[]> {
   const token = await getToken();
-  const url = opts?.mine ? '/api/catches?mine=true' : '/api/catches';
-  const res = await fetch(url, {
+  const params = new URLSearchParams();
+  if (opts?.mine) params.set('mine', 'true');
+  if (opts?.user) params.set('user', opts.user);
+  const query = params.toString();
+  const res = await fetch(query ? `/api/catches?${query}` : '/api/catches', {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) throw new Error('Failed to load catches');
@@ -138,4 +153,38 @@ export async function deleteLure(id: string): Promise<void> {
     const text = await res.text();
     throw new ApiError(res.status, text || 'Failed to delete lure');
   }
+}
+
+/** Resolves to null when no such user exists. */
+export async function getProfile(username: string): Promise<Profile | null> {
+  const res = await fetch(`/api/profiles/${encodeURIComponent(username)}`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error('Failed to load profile');
+  return res.json();
+}
+
+export async function getMyProfile(): Promise<Profile> {
+  const token = await getToken();
+  const res = await fetch('/api/me/profile', {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new ApiError(res.status, text || 'Failed to load profile');
+  }
+  return res.json();
+}
+
+export async function updateMyProfile(form: FormData): Promise<Profile> {
+  const token = await getToken();
+  const res = await fetch('/api/me/profile', {
+    method: 'PUT',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new ApiError(res.status, text || 'Failed to save profile');
+  }
+  return res.json();
 }

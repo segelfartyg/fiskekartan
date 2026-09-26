@@ -227,7 +227,12 @@
       }
     }
     for (const c of list) {
-      if (markers.has(c.id)) continue;
+      const existing = markers.get(c.id);
+      if (existing) {
+        // The owner may have changed their pin color since it was created.
+        applyPinColor(existing.getElement(), c.pin_color);
+        continue;
+      }
       const el = document.createElement('button');
       el.className = 'pin';
       el.type = 'button';
@@ -240,6 +245,7 @@
       const shape = document.createElement('span');
       shape.className = 'pin-shape';
       el.appendChild(shape);
+      applyPinColor(el, c.pin_color);
       el.addEventListener('click', (evt) => {
         evt.stopPropagation();
         onPinClick(c.id);
@@ -248,6 +254,20 @@
         .setLngLat([c.longitude, c.latitude])
         .addTo(map);
       markers.set(c.id, marker);
+    }
+  }
+
+  // Overrides the theme-derived pin colors (see .pin below) with the
+  // owner's chosen one, or reverts to the theme when they have none.
+  function applyPinColor(el: HTMLElement, color: string | undefined) {
+    if (color) {
+      el.style.setProperty('--pin', color);
+      el.style.setProperty('--pin-light', `color-mix(in srgb, ${color}, white 30%)`);
+      el.style.setProperty('--pin-dark', `color-mix(in srgb, ${color}, black 25%)`);
+    } else {
+      el.style.removeProperty('--pin');
+      el.style.removeProperty('--pin-light');
+      el.style.removeProperty('--pin-dark');
     }
   }
 </script>
@@ -261,6 +281,9 @@
   }
 
   :global(.pin) {
+    --pin: var(--color-primary);
+    --pin-light: var(--color-primary-light);
+    --pin-dark: var(--color-primary-dark);
     width: 20px;
     height: 20px;
     border: none;
@@ -275,11 +298,11 @@
     height: 100%;
     border-radius: 50% 50% 50% 0;
     transform: rotate(-45deg);
-    background: linear-gradient(135deg, var(--color-primary-light), var(--color-primary-dark));
+    background: linear-gradient(135deg, var(--pin-light), var(--pin-dark));
     border: 2px solid white;
     box-shadow:
       0 2px 6px rgba(0, 0, 0, 0.35),
-      0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
+      0 0 0 3px color-mix(in srgb, var(--pin) 18%, transparent);
     transition:
       transform 150ms cubic-bezier(0.22, 1, 0.36, 1),
       box-shadow 150ms cubic-bezier(0.22, 1, 0.36, 1);
@@ -289,6 +312,6 @@
     transform: rotate(-45deg) scale(1.15);
     box-shadow:
       0 3px 10px rgba(0, 0, 0, 0.4),
-      0 0 0 5px color-mix(in srgb, var(--color-primary) 22%, transparent);
+      0 0 0 5px color-mix(in srgb, var(--pin) 22%, transparent);
   }
 </style>

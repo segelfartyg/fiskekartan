@@ -178,7 +178,7 @@
     font-size: 1.2rem;
     line-height: 1;
     background: var(--border-soft);
-    border-radius: 999px;
+    border-radius: var(--radius-sm);
     border: none;
     cursor: pointer;
     color: inherit;
@@ -266,7 +266,7 @@
     cursor: pointer;
     padding: 4px;
     flex-shrink: 0;
-    border-radius: 999px;
+    border-radius: var(--radius-sm);
     transition: background 150ms var(--ease);
   }
 
@@ -315,7 +315,7 @@
     font: inherit;
     font-weight: 600;
     padding: 9px 18px;
-    border-radius: 999px;
+    border-radius: var(--radius-sm);
     border: none;
     background: linear-gradient(135deg, var(--color-primary-light), var(--color-primary-dark));
     color: white;

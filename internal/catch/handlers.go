@@ -41,17 +41,21 @@ func NewHandlers(repo *Repository, images ImageStore, lures LureVerifier) *Handl
 }
 
 func (h *Handlers) List(w http.ResponseWriter, r *http.Request) {
-	var ownerSub *string
+	var filter ListFilter
 	if r.URL.Query().Get("mine") == "true" {
 		sub, ok := authmw.SubFromContext(r.Context())
 		if !ok {
 			http.Error(w, "must be logged in to filter by mine", http.StatusUnauthorized)
 			return
 		}
-		ownerSub = &sub
+		filter.OwnerSub = &sub
+	}
+	if v := r.URL.Query().Get("user"); v != "" {
+		username := strings.ToLower(v)
+		filter.Username = &username
 	}
 
-	list, err := h.repo.List(r.Context(), ownerSub)
+	list, err := h.repo.List(r.Context(), filter)
 	if err != nil {
 		http.Error(w, "failed to list catches", http.StatusInternalServerError)
 		return
@@ -77,6 +81,8 @@ func (h *Handlers) Get(w http.ResponseWriter, r *http.Request) {
 		OwnedByMe: c.OwnerSub != nil && sub == *c.OwnerSub,
 		HasOwner:  c.OwnerSub != nil,
 		LoggedBy:  c.OwnerDisplayName,
+
+		LoggedByUsername: c.OwnerUsername,
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

@@ -1,11 +1,23 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { untrack } from 'svelte';
   import Map from './lib/Map.svelte';
   import CatchForm from './lib/CatchForm.svelte';
   import CatchDetailPanel from './lib/CatchDetail.svelte';
   import LureBox from './lib/LureBox.svelte';
-  import { listCatches, getCatch, type CatchSummary, type CatchDetail } from './lib/api';
+  import ProfileCard from './lib/ProfileCard.svelte';
+  import ProfileEditor from './lib/ProfileEditor.svelte';
+  import {
+    listCatches,
+    getCatch,
+    getProfile,
+    getMyProfile,
+    type CatchSummary,
+    type CatchDetail,
+    type Profile,
+  } from './lib/api';
   import { authState, login, logout } from './lib/auth.svelte';
+  import { route, navigate, handleLinkClick } from './lib/router.svelte';
+  import logo from './assets/logo.png';
   import { devTheme } from './lib/dev/devTheme.svelte';
   import { adjustLightness } from './lib/dev/colorMath';
   import { themeEditorEnabled } from './lib/dev/testMode';
@@ -38,12 +50,56 @@
   let loadError = $state('');
   let mineOnly = $state(false);
   let showLurebox = $state(false);
+  let showProfileEditor = $state(false);
+  // The public profile being viewed at /{username}, if any.
+  let viewedProfile: Profile | null = $state(null);
+  let myProfile: Profile | null = $state(null);
 
-  onMount(refresh);
+  // Loading my profile also creates it on first login, so every logged-in
+  // user gets a public page and a pin color setting without visiting it.
+  $effect(() => {
+    if (!authState.authenticated) {
+      myProfile = null;
+      return;
+    }
+    getMyProfile()
+      .then((p) => (myProfile = p))
+      .catch(() => {
+        // Non-critical — only the "Edit profile" shortcut depends on it.
+      });
+  });
+
+  // Re-runs on every route change, including the initial page load.
+  $effect(() => {
+    const username = route.profileUsername;
+    untrack(() => loadRoute(username));
+  });
+
+  async function loadRoute(username: string | null) {
+    selectedCatch = null;
+    newCatchLocation = null;
+    viewedProfile = null;
+    if (username) {
+      try {
+        viewedProfile = await getProfile(username);
+        if (!viewedProfile) {
+          loadError = `No angler named @${username}`;
+          catches = [];
+          return;
+        }
+      } catch (err) {
+        loadError = err instanceof Error ? err.message : 'Failed to load profile';
+        return;
+      }
+    }
+    refresh();
+  }
 
   async function refresh() {
     try {
-      catches = await listCatches({ mine: mineOnly });
+      catches = route.profileUsername
+        ? await listCatches({ user: route.profileUsername })
+        : await listCatches({ mine: mineOnly });
       loadError = '';
     } catch (err) {
       loadError = err instanceof Error ? err.message : 'Failed to load catches';
@@ -79,6 +135,13 @@
     refresh();
   }
 
+  function handleProfileSaved(p: Profile) {
+    myProfile = p;
+    if (viewedProfile?.username === p.username) viewedProfile = p;
+    // Pin color may have changed.
+    refresh();
+  }
+
   function handleLogout() {
     logout();
     // Otherwise a lingering "mine only" filter would keep requesting
@@ -91,14 +154,15 @@
 </script>
 
 <main>
-  <Map {catches} onMapClick={handleMapClick} onPinClick={handlePinClick} />
-
-  <div class="brand">
-    <span class="brand-mark">🎣</span>
-    <span class="brand-name">Fiskekartan</span>
+  <div class="map-area">
+    <Map {catches} onMapClick={handleMapClick} onPinClick={handlePinClick} />
   </div>
 
-  <p class="hint">Click anywhere on the map to log a catch there.</p>
+  <footer class="bottom-bar">
+    <a href="/" class="logo-link" onclick={handleLinkClick} aria-label="Fiskekartan – show everyone's catches">
+      <img src={logo} alt="Fiskekartan" class="logo" />
+    </a>
+  </footer>
 
   <div class="control-stack">
     <button class="pill auth-pill" onclick={authState.authenticated ? handleLogout : login}>
@@ -106,10 +170,27 @@
     </button>
 
     {#if authState.authenticated}
-      <button class="pill mine-toggle" class:active={mineOnly} onclick={toggleMineOnly}>
-        {mineOnly ? 'Showing: mine only' : 'Showing: everyone'}
-      </button>
+      {#if !route.profileUsername}
+        <button class="pill mine-toggle" class:active={mineOnly} onclick={toggleMineOnly}>
+          {mineOnly ? 'Showing: mine only' : 'Showing: everyone'}
+        </button>
+      {/if}
       <button class="pill lurebox-pill" onclick={() => (showLurebox = true)}>My lures</button>
+      <button class="pill profile-pill" onclick={() => (showProfileEditor = true)}>
+        {#if myProfile?.avatar}<img src={myProfile.avatar} alt="" />{/if}
+        My profile
+      </button>
+    {/if}
+
+    {#if viewedProfile}
+      <ProfileCard
+        profile={viewedProfile}
+        isMe={!!myProfile && myProfile.username === viewedProfile.username}
+        onEdit={() => (showProfileEditor = true)}
+        onClose={() => navigate('/')}
+      />
+    {:else if route.profileUsername}
+      <button class="pill" onclick={() => navigate('/')}>← Show everyone's catches</button>
     {/if}
   </div>
 
@@ -138,6 +219,10 @@
     <LureBox onClose={() => (showLurebox = false)} />
   {/if}
 
+  {#if showProfileEditor}
+    <ProfileEditor onClose={() => (showProfileEditor = false)} onSaved={handleProfileSaved} />
+  {/if}
+
   {#if ThemeDevPanel}
     <ThemeDevPanel />
   {/if}
@@ -145,46 +230,55 @@
 
 <style>
   main {
+    --bottom-bar-height: 48px;
     position: relative;
     width: 100vw;
     height: 100vh;
   }
 
-  .brand {
+  /* The map stops above the bottom bar (rather than running underneath it)
+     so maplibre's bottom-corner attribution stays visible. */
+  .map-area {
     position: absolute;
-    z-index: 5;
-    top: 16px;
-    left: 50%;
-    transform: translateX(-50%);
+    inset: 0 0 var(--bottom-bar-height) 0;
+  }
+
+  .bottom-bar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: var(--bottom-bar-height);
     display: flex;
     align-items: center;
-    gap: 8px;
-    background: var(--surface);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    padding: 0 16px;
+    background: var(--surface-solid);
     color: var(--surface-fg);
-    padding: 8px 16px;
-    border-radius: 999px;
-    box-shadow: var(--shadow-sm);
-    border: 1px solid var(--border-soft);
-    pointer-events: none;
+    border-top: 1px solid var(--border-soft);
+    box-shadow: 0 -2px 10px rgba(15, 23, 42, 0.06);
+    z-index: 5;
   }
 
-  .brand-mark {
-    font-size: 1.1rem;
+  .logo-link {
+    display: flex;
+    align-items: center;
+    height: 100%;
   }
 
-  .brand-name {
-    font-weight: 800;
-    font-size: 0.95rem;
-    letter-spacing: 0.02em;
-    background: linear-gradient(135deg, var(--color-primary-light), var(--color-primary-dark));
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
+  .logo {
+    height: 26px;
+    width: auto;
+    display: block;
   }
 
-  .hint,
+  /* The logo is black ink on transparent — flip it to white on dark surfaces. */
+  @media (prefers-color-scheme: dark) {
+    .logo {
+      filter: invert(1);
+    }
+  }
+
+
   .banner {
     position: absolute;
     z-index: 5;
@@ -199,15 +293,10 @@
     border: 1px solid var(--border-soft);
   }
 
-  .hint {
-    top: 12px;
-    left: 12px;
-  }
-
   .control-stack {
     position: absolute;
     z-index: 5;
-    top: 50px;
+    top: 12px;
     left: 12px;
     display: flex;
     flex-direction: column;
@@ -224,7 +313,7 @@
     -webkit-backdrop-filter: blur(10px);
     color: var(--surface-fg);
     padding: 7px 14px;
-    border-radius: 999px;
+    border-radius: var(--radius-sm);
     font-size: 0.85rem;
     box-shadow: var(--shadow-sm);
     transition:
@@ -236,6 +325,24 @@
   .pill:hover {
     transform: translateY(-1px);
     box-shadow: var(--shadow-md);
+  }
+
+  .control-stack > .pill {
+    align-self: flex-start;
+  }
+
+  .profile-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .profile-pill img {
+    width: 20px;
+    height: 20px;
+    border-radius: var(--radius-sm);
+    object-fit: cover;
+    margin-left: -6px;
   }
 
   .mine-toggle.active {

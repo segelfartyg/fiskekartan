@@ -1,8 +1,10 @@
 package server
 
 import (
+	"errors"
 	"io/fs"
 	"net/http"
+	"strings"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -10,6 +12,7 @@ import (
 	"swaren.se/fiskekartan/internal/catch"
 	"swaren.se/fiskekartan/internal/imagestore"
 	"swaren.se/fiskekartan/internal/lure"
+	"swaren.se/fiskekartan/internal/profile"
 	"swaren.se/fiskekartan/internal/smhi"
 	"swaren.se/fiskekartan/internal/weather"
 )
@@ -22,6 +25,8 @@ func New(pool *pgxpool.Pool, imgStore *imagestore.Store, verifier *oidc.IDTokenV
 
 	repo := catch.NewRepository(pool)
 	handlers := catch.NewHandlers(repo, imgStore, lureRepo)
+
+	profileHandlers := profile.NewHandlers(profile.NewRepository(pool), imgStore)
 
 	weatherHandlers := weather.NewHandlers(smhi.NewClient())
 
@@ -39,6 +44,10 @@ func New(pool *pgxpool.Pool, imgStore *imagestore.Store, verifier *oidc.IDTokenV
 	mux.HandleFunc("POST /api/lures", withMiddleware(requireAuth(lureHandlers.Create)))
 	mux.HandleFunc("DELETE /api/lures/{id}", withMiddleware(requireAuth(lureHandlers.Delete)))
 
+	mux.HandleFunc("GET /api/profiles/{username}", withMiddleware(profileHandlers.Get))
+	mux.HandleFunc("GET /api/me/profile", withMiddleware(requireAuth(profileHandlers.GetMine)))
+	mux.HandleFunc("PUT /api/me/profile", withMiddleware(requireAuth(profileHandlers.UpdateMine)))
+
 	mux.HandleFunc("GET /api/weather", withMiddleware(weatherHandlers.Get))
 
 	// Proxied through the backend (rather than presigned MinIO URLs) so the
@@ -48,9 +57,28 @@ func New(pool *pgxpool.Pool, imgStore *imagestore.Store, verifier *oidc.IDTokenV
 	mux.HandleFunc("GET /images/{name}", withMiddleware(handlers.ServeImage))
 	mux.HandleFunc("GET /tiles/{name}", withMiddleware(handlers.ServeImage))
 
-	mux.Handle("GET /", http.FileServer(http.FS(webDist)))
+	mux.Handle("GET /", spaHandler(webDist))
 
 	return mux, nil
+}
+
+// spaHandler serves the built frontend, falling back to index.html for any
+// path that isn't a real file — that's how client-side routes like the
+// public profile page at /{username} load the app on a direct visit.
+func spaHandler(webDist fs.FS) http.Handler {
+	files := http.FileServer(http.FS(webDist))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.URL.Path, "/")
+		if name != "" {
+			if _, err := fs.Stat(webDist, name); errors.Is(err, fs.ErrNotExist) && !strings.HasPrefix(name, "assets/") {
+				// Missing hashed assets still 404, rather than handing a
+				// stale-bundle browser HTML where it expects JS.
+				http.ServeFileFS(w, r, webDist, "index.html")
+				return
+			}
+		}
+		files.ServeHTTP(w, r)
+	})
 }
 
 // withMiddleware is a no-op passthrough applied to every route (auth-gated

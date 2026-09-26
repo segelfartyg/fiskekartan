@@ -29,6 +29,7 @@ type Catch struct {
 	// allowed to see from these.
 	OwnerSub         *string `json:"-"`
 	OwnerDisplayName *string `json:"-"`
+	OwnerUsername    *string `json:"-"`
 	LureID           *string `json:"-"`
 }
 
@@ -40,6 +41,9 @@ type CatchResponse struct {
 	OwnedByMe bool    `json:"owned_by_me"`
 	HasOwner  bool    `json:"has_owner"`
 	LoggedBy  *string `json:"logged_by,omitempty"`
+	// LoggedByUsername links to the owner's public profile, when they have
+	// one.
+	LoggedByUsername *string `json:"logged_by_username,omitempty"`
 }
 
 // CatchSummary is the lightweight shape used for map pins.
@@ -50,6 +54,15 @@ type CatchSummary struct {
 	Longitude float64   `json:"longitude"`
 	CaughtAt  time.Time `json:"caught_at"`
 	Thumbnail *string   `json:"thumbnail,omitempty"`
+	// PinColor is the owner's chosen map pin color, if they've set one.
+	PinColor *string `json:"pin_color,omitempty"`
+}
+
+// ListFilter restricts List to one owner, by sub or by profile username.
+// Both nil means everyone's catches.
+type ListFilter struct {
+	OwnerSub *string
+	Username *string
 }
 
 type CreateInput struct {

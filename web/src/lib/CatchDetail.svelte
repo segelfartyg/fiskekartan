@@ -1,6 +1,7 @@
 <script lang="ts">
   import { deleteCatch, ApiError, type CatchDetail } from './api';
   import { login } from './auth.svelte';
+  import { handleLinkClick } from './router.svelte';
 
   let {
     catchData,
@@ -40,6 +41,10 @@
     <p class="meta">{new Date(catchData.caught_at).toLocaleString()}</p>
     {#if catchData.owned_by_me}
       <p class="attribution">Logged by you</p>
+    {:else if catchData.logged_by_username}
+      <p class="attribution">
+        Logged by <a href="/{catchData.logged_by_username}" onclick={handleLinkClick}>@{catchData.logged_by_username}</a>
+      </p>
     {:else if catchData.has_owner}
       <p class="attribution">Logged by {catchData.logged_by ?? 'another angler'}</p>
     {/if}
@@ -136,7 +141,7 @@
     font-size: 1.2rem;
     line-height: 1;
     background: var(--border-soft);
-    border-radius: 999px;
+    border-radius: var(--radius-sm);
     border: none;
     cursor: pointer;
     color: inherit;
@@ -162,6 +167,11 @@
     opacity: 0.7;
     font-size: 0.85rem;
     margin: 0 0 16px;
+  }
+
+  .attribution a {
+    color: var(--color-primary);
+    font-weight: 600;
   }
 
   .images {
@@ -222,7 +232,7 @@
     font: inherit;
     font-weight: 600;
     padding: 9px 18px;
-    border-radius: 999px;
+    border-radius: var(--radius-sm);
     border: 1px solid var(--color-danger);
     background: none;
     color: var(--color-danger);

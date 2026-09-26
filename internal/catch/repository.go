@@ -17,29 +17,19 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-// List returns catch summaries, optionally restricted to ownerSub's own
-// catches (nil means everyone's).
-func (r *Repository) List(ctx context.Context, ownerSub *string) ([]CatchSummary, error) {
-	var rows pgx.Rows
-	var err error
-	if ownerSub == nil {
-		rows, err = r.pool.Query(ctx, `
-			SELECT c.id, c.species, c.latitude, c.longitude, c.caught_at,
-			       (SELECT ci.file_path FROM catch_images ci
-			        WHERE ci.catch_id = c.id ORDER BY ci.created_at ASC LIMIT 1)
-			FROM catches c
-			ORDER BY c.caught_at DESC
-		`)
-	} else {
-		rows, err = r.pool.Query(ctx, `
-			SELECT c.id, c.species, c.latitude, c.longitude, c.caught_at,
-			       (SELECT ci.file_path FROM catch_images ci
-			        WHERE ci.catch_id = c.id ORDER BY ci.created_at ASC LIMIT 1)
-			FROM catches c
-			WHERE c.owner_sub = $1
-			ORDER BY c.caught_at DESC
-		`, *ownerSub)
-	}
+// List returns catch summaries, optionally restricted to a single owner.
+func (r *Repository) List(ctx context.Context, filter ListFilter) ([]CatchSummary, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT c.id, c.species, c.latitude, c.longitude, c.caught_at,
+		       (SELECT ci.file_path FROM catch_images ci
+		        WHERE ci.catch_id = c.id ORDER BY ci.created_at ASC LIMIT 1),
+		       p.pin_color
+		FROM catches c
+		LEFT JOIN profiles p ON p.sub = c.owner_sub
+		WHERE ($1::text IS NULL OR c.owner_sub = $1)
+		  AND ($2::text IS NULL OR p.username = $2)
+		ORDER BY c.caught_at DESC
+	`, filter.OwnerSub, filter.Username)
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +39,7 @@ func (r *Repository) List(ctx context.Context, ownerSub *string) ([]CatchSummary
 	for rows.Next() {
 		var s CatchSummary
 		var thumb *string
-		if err := rows.Scan(&s.ID, &s.Species, &s.Latitude, &s.Longitude, &s.CaughtAt, &thumb); err != nil {
+		if err := rows.Scan(&s.ID, &s.Species, &s.Latitude, &s.Longitude, &s.CaughtAt, &thumb, &s.PinColor); err != nil {
 			return nil, err
 		}
 		if thumb != nil {
@@ -68,18 +58,22 @@ func (r *Repository) List(ctx context.Context, ownerSub *string) ([]CatchSummary
 func (r *Repository) Get(ctx context.Context, id string) (*Catch, error) {
 	var c Catch
 	err := r.pool.QueryRow(ctx, `
-		SELECT id, species, weight_grams, length_cm, bait_lure, technique, water_type,
-		       latitude, longitude, caught_at, notes,
-		       weather_temp_c, weather_wind_speed_ms, weather_wind_direction,
-		       weather_pressure_hpa, weather_cloud_cover, water_temp_c,
-		       created_at, updated_at, owner_sub, owner_display_name, lure_id
-		FROM catches WHERE id = $1
+		SELECT c.id, c.species, c.weight_grams, c.length_cm, c.bait_lure, c.technique, c.water_type,
+		       c.latitude, c.longitude, c.caught_at, c.notes,
+		       c.weather_temp_c, c.weather_wind_speed_ms, c.weather_wind_direction,
+		       c.weather_pressure_hpa, c.weather_cloud_cover, c.water_temp_c,
+		       c.created_at, c.updated_at, c.owner_sub, c.owner_display_name, c.lure_id,
+		       p.username
+		FROM catches c
+		LEFT JOIN profiles p ON p.sub = c.owner_sub
+		WHERE c.id = $1
 	`, id).Scan(
 		&c.ID, &c.Species, &c.WeightGrams, &c.LengthCM, &c.BaitLure, &c.Technique, &c.WaterType,
 		&c.Latitude, &c.Longitude, &c.CaughtAt, &c.Notes,
 		&c.WeatherTempC, &c.WeatherWindSpeedMS, &c.WeatherWindDirection,
 		&c.WeatherPressureHPa, &c.WeatherCloudCover, &c.WaterTempC,
 		&c.CreatedAt, &c.UpdatedAt, &c.OwnerSub, &c.OwnerDisplayName, &c.LureID,
+		&c.OwnerUsername,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
