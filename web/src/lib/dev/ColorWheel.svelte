@@ -7,7 +7,7 @@
     value,
     onChange,
   }: {
-    label: string;
+    label?: string;
     value: string;
     onChange: (hex: string) => void;
   } = $props();
@@ -45,10 +45,12 @@
 
 <div class="wheel-row">
   <div class="wheel" bind:this={container}></div>
-  <div class="wheel-meta">
-    <span class="wheel-label">{label}</span>
-    <code class="wheel-value">{value}</code>
-  </div>
+  {#if label}
+    <div class="wheel-meta">
+      <span class="wheel-label">{label}</span>
+      <code class="wheel-value">{value}</code>
+    </div>
+  {/if}
 </div>
 
 <style>

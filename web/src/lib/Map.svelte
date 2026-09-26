@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from "svelte";
   import {
     MapLibreMap,
     NavigationControl,
+    AttributionControl,
     GeolocateControl,
     Marker,
     addProtocol,
@@ -10,14 +11,14 @@
     setWorkerUrl,
     type LayerSpecification,
     type MapMouseEvent,
-  } from 'maplibre-gl';
-  import 'maplibre-gl/dist/maplibre-gl.css';
-  import { Protocol } from 'pmtiles';
-  import mlcontour from 'maplibre-contour';
-  import { noLabelsWithCustomTheme, namedTheme } from 'protomaps-themes-base';
-  import type { CatchSummary } from './api';
-  import { devTheme } from './dev/devTheme.svelte';
-  import { themeEditorEnabled } from './dev/testMode';
+  } from "maplibre-gl";
+  import "maplibre-gl/dist/maplibre-gl.css";
+  import { Protocol } from "pmtiles";
+  import mlcontour from "maplibre-contour";
+  import { layers } from "@protomaps/basemaps";
+  import type { CatchSummary } from "./api";
+  import { devTheme, loadMapColors, stockMapColors } from "./dev/devTheme.svelte";
+  import { mapTheme } from "./mapTheme.svelte";
 
   // maplibre-gl resolves its worker script relative to its own bundle URL at
   // runtime, which Vite has no way to see and copy into the build output —
@@ -26,7 +27,7 @@
   // The worker file itself statically imports a sibling maplibre-gl-shared.mjs,
   // so both are copied unhashed into dist/assets/ (see vite.config.ts) and
   // referenced here by that fixed, known path.
-  setWorkerUrl('/assets/maplibre-gl-worker.mjs');
+  setWorkerUrl("/assets/maplibre-gl-worker.mjs");
 
   let {
     catches,
@@ -40,7 +41,7 @@
 
   let container: HTMLDivElement;
   let map: MapLibreMap | undefined;
-  let mapStyleReady = false;
+  let mapStyleReady = $state(false);
   const markers = new Map<string, Marker>();
 
   // Sweden, roughly centered.
@@ -53,47 +54,39 @@
     [10.5, 55.0],
     [24.5, 69.5],
   ];
-  const MIN_ZOOM = 4;
+  const MIN_ZOOM = 6;
 
-  // Protomaps' default theme is a clean general-purpose style, not a topo
-  // map — nudge land/forest/water toward an "outdoor map" palette so the
-  // hillshade integrates visually instead of looking like a separate
-  // overlay on top of a bright basemap. Reads from devTheme (rather than
-  // hardcoded literals) so the dev-only ThemeDevPanel can re-theme the
-  // basemap live; devTheme's defaults match what used to be hardcoded here.
+  // devTheme.basemap is the stock Protomaps flavor for the active light/dark
+  // mode. Reads from devTheme (rather than namedFlavor directly) so the
+  // dev-only ThemeDevPanel can re-theme the basemap live.
   function buildLayers(): LayerSpecification[] {
-    const outdoorTheme = {
-      ...namedTheme('light'),
-      earth: devTheme.earth,
-      wood_a: devTheme.woodA,
-      wood_b: devTheme.woodB,
-      water: devTheme.water,
-    };
-    const baseLayers = noLabelsWithCustomTheme('protomaps', outdoorTheme);
+    const baseLayers = layers("protomaps", devTheme.basemap, { lang: "sv" }).map(
+      applyContrast,
+    );
     // Hillshade and contours need to sit above land/water fills but below
     // roads, or they wash out the vector data drawn on top of them.
-    const firstLineLayerIndex = baseLayers.findIndex((l) => l.type === 'line');
+    const firstLineLayerIndex = baseLayers.findIndex((l) => l.type === "line");
     const hillshadeLayer: LayerSpecification = {
-      id: 'hillshade',
-      type: 'hillshade',
-      source: 'terrain-rgb',
+      id: "hillshade",
+      type: "hillshade",
+      source: "terrain-rgb",
       paint: {
         // Sweden is mostly low relief outside the Fjäll region — full
         // exaggeration looks muddy on flat terrain.
-        'hillshade-exaggeration': 0.25,
-        'hillshade-shadow-color': devTheme.hillshadeShadow,
-        'hillshade-highlight-color': devTheme.hillshadeHighlight,
-        'hillshade-accent-color': devTheme.hillshadeAccent,
+        "hillshade-exaggeration": 0.25,
+        "hillshade-shadow-color": devTheme.terrain.hillshadeShadow,
+        "hillshade-highlight-color": devTheme.terrain.hillshadeHighlight,
+        "hillshade-accent-color": devTheme.terrain.hillshadeAccent,
       },
     };
     const contourLinesLayer: LayerSpecification = {
-      id: 'contour-lines',
-      type: 'line',
-      source: 'contours',
-      'source-layer': 'contours',
+      id: "contour-lines",
+      type: "line",
+      source: "contours",
+      "source-layer": "contours",
       paint: {
-        'line-color': devTheme.contourLine,
-        'line-width': ['match', ['get', 'level'], 1, 1, 0.5],
+        "line-color": devTheme.terrain.contourLine,
+        "line-width": ["match", ["get", "level"], 1, 1, 0.5],
       },
     };
     const extraLayers = [hillshadeLayer, contourLinesLayer];
@@ -106,15 +99,40 @@
         ];
   }
 
+  function spriteUrl(): string {
+    return `https://protomaps.github.io/basemaps-assets/sprites/v4/${mapTheme.mode}`;
+  }
+
+  // Protomaps hardcodes halo widths, building opacity and the water-label
+  // halo (it reuses the water color) in its layer definitions rather than
+  // the flavor, so patch them onto the generated layers.
+  function applyContrast(layer: LayerSpecification): LayerSpecification {
+    const { labelHaloWidth, buildingOpacity, waterLabelHalo } = devTheme.contrast;
+    if (layer.type === "symbol" && layer.paint?.["text-halo-width"] !== undefined) {
+      return {
+        ...layer,
+        paint: {
+          ...layer.paint,
+          "text-halo-width": labelHaloWidth,
+          ...(layer.id.startsWith("water_") && { "text-halo-color": waterLabelHalo }),
+        },
+      };
+    }
+    if (layer.id === "buildings" && layer.type === "fill") {
+      return { ...layer, paint: { ...layer.paint, "fill-opacity": buildingOpacity } };
+    }
+    return layer;
+  }
+
   onMount(() => {
     const protocol = new Protocol();
-    addProtocol('pmtiles', protocol.tile);
+    addProtocol("pmtiles", protocol.tile);
 
     // maplibre-contour derives contour geometry client-side from the same
     // terrain-RGB tiles used for hillshading — no separate contour dataset.
     const demSource = new mlcontour.DemSource({
-      url: 'https://tiles.mapterhorn.com/{z}/{x}/{y}.webp',
-      encoding: 'terrarium',
+      url: "https://tiles.mapterhorn.com/{z}/{x}/{y}.webp",
+      encoding: "terrarium",
       maxzoom: 12,
       worker: true,
     });
@@ -126,18 +144,18 @@
         version: 8,
         sources: {
           protomaps: {
-            type: 'vector',
-            url: 'pmtiles:///tiles/sweden.pmtiles',
-            attribution: '&copy; OpenStreetMap contributors',
+            type: "vector",
+            url: "pmtiles:///tiles/sweden.pmtiles",
+            attribution: "&copy; OpenStreetMap contributors",
           },
-          'terrain-rgb': {
-            type: 'raster-dem',
-            url: 'https://tiles.mapterhorn.com/tilejson.json',
+          "terrain-rgb": {
+            type: "raster-dem",
+            url: "https://tiles.mapterhorn.com/tilejson.json",
             tileSize: 512,
-            encoding: 'terrarium',
+            encoding: "terrarium",
           },
           contours: {
-            type: 'vector',
+            type: "vector",
             tiles: [
               demSource.contourProtocolUrl({
                 thresholds: {
@@ -147,47 +165,64 @@
                   14: [10, 50],
                   16: [5, 25],
                 },
-                elevationKey: 'ele',
-                levelKey: 'level',
-                contourLayer: 'contours',
+                elevationKey: "ele",
+                levelKey: "level",
+                contourLayer: "contours",
               }),
             ],
             maxzoom: 16,
           },
         },
-        // Basemap only, no text labels — avoids needing a self-hosted glyphs
-        // server just to render place names. (Contour elevation labels are
-        // skipped for the same reason.)
+        // Fonts and icons for the basemap labels (place/water/road names),
+        // served from Protomaps' public assets.
+        glyphs:
+          "https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf",
+        sprite: spriteUrl(),
         layers: buildLayers(),
       },
       center: DEFAULT_CENTER,
       zoom: DEFAULT_ZOOM,
       maxBounds: SWEDEN_BOUNDS,
       minZoom: MIN_ZOOM,
+      attributionControl: false,
     });
     map = instance;
 
-    instance.addControl(new NavigationControl(), 'top-right');
-    instance.addControl(new GeolocateControl({ trackUserLocation: false }), 'top-right');
+    instance.addControl(new NavigationControl(), "top-right");
+    // Always the compact ⓘ button, and collapsed to start with. maplibre
+    // expands it (`maplibregl-compact-show`) the first time a source reports
+    // its attribution and only collapses it on the first drag — on phones the
+    // expanded text spans the whole bottom edge, under the Log in / map style
+    // buttons. So collapse it as soon as it's been expanded, once.
+    instance.addControl(new AttributionControl({ compact: true }), "bottom-right");
+    const collapseAttribution = () => {
+      const attrib = container.querySelector(".maplibregl-ctrl-attrib");
+      if (!attrib?.classList.contains("maplibregl-compact-show")) return;
+      attrib.classList.remove("maplibregl-compact-show");
+      instance.off("sourcedata", collapseAttribution);
+    };
+    instance.on("sourcedata", collapseAttribution);
+    instance.addControl(
+      new GeolocateControl({ trackUserLocation: false }),
+      "top-right",
+    );
 
-    instance.on('click', (e: MapMouseEvent) => {
+    instance.on("click", (e: MapMouseEvent) => {
       onMapClick(e.lngLat.lng, e.lngLat.lat);
     });
 
-    if (themeEditorEnabled) {
-      // getStyle() can return an incomplete object (missing `sources`, etc.)
-      // until the initial style has actually finished loading — calling
-      // setStyle with that before 'load' corrupts the map.
-      instance.on('load', () => {
-        mapStyleReady = true;
-      });
-    }
+    // getStyle() can return an incomplete object (missing `sources`, etc.)
+    // until the initial style has actually finished loading — calling
+    // setStyle with that before 'load' corrupts the map.
+    instance.on("load", () => {
+      mapStyleReady = true;
+    });
 
     syncMarkers(catches);
 
     return () => {
       instance.remove();
-      removeProtocol('pmtiles');
+      removeProtocol("pmtiles");
       removeProtocol(demSource.sharedDemProtocolId);
       removeProtocol(demSource.contourProtocolId);
     };
@@ -197,25 +232,31 @@
     if (map) syncMarkers(catches);
   });
 
-  if (themeEditorEnabled) {
-    // Re-theme the basemap live when the theme editor changes a basemap
-    // color. Reading each devTheme field here (rather than the object as a
-    // whole) is what makes $effect track them individually.
-    $effect(() => {
-      const {
-        earth: _earth,
-        woodA: _woodA,
-        woodB: _woodB,
-        water: _water,
-        hillshadeShadow: _hillshadeShadow,
-        hillshadeHighlight: _hillshadeHighlight,
-        hillshadeAccent: _hillshadeAccent,
-        contourLine: _contourLine,
-      } = devTheme;
-      if (!map || !mapStyleReady) return;
-      map.setStyle({ ...map.getStyle(), layers: buildLayers() }, { diff: true });
-    });
-  }
+  // Switching light/dark swaps in that mode's stock colors (discarding any
+  // theme-editor tweaks). Skips the first run — devTheme already starts from
+  // the active mode, and resetting there would be a pointless restyle.
+  let lastMode = mapTheme.mode;
+  $effect(() => {
+    const mode = mapTheme.mode;
+    if (mode === lastMode) return;
+    lastMode = mode;
+    untrack(() => loadMapColors(stockMapColors(mode)));
+  });
+
+  // Re-theme the basemap live when the colors change — from the light/dark
+  // switch or the theme editor. Snapshotting reads every nested field, which
+  // is what makes $effect track them all (but not the unrelated accent colors).
+  $effect(() => {
+    $state.snapshot(devTheme.basemap);
+    $state.snapshot(devTheme.terrain);
+    $state.snapshot(devTheme.contrast);
+    const sprite = spriteUrl();
+    if (!map || !mapStyleReady) return;
+    map.setStyle(
+      { ...map.getStyle(), sprite, layers: buildLayers() },
+      { diff: true },
+    );
+  });
 
   function syncMarkers(list: CatchSummary[]) {
     if (!map) return;
@@ -233,20 +274,20 @@
         applyPinColor(existing.getElement(), c.pin_color);
         continue;
       }
-      const el = document.createElement('button');
-      el.className = 'pin';
-      el.type = 'button';
-      el.setAttribute('aria-label', c.species);
+      const el = document.createElement("button");
+      el.className = "pin";
+      el.type = "button";
+      el.setAttribute("aria-label", c.species);
       // The rotated teardrop shape lives on this inner span rather than on
       // `el` itself — maplibre sets its own inline `transform` on the marker
       // root element for positioning, which would silently clobber any
       // `transform` (e.g. our rotate) applied via stylesheet to the same
       // element.
-      const shape = document.createElement('span');
-      shape.className = 'pin-shape';
+      const shape = document.createElement("span");
+      shape.className = "pin-shape";
       el.appendChild(shape);
       applyPinColor(el, c.pin_color);
-      el.addEventListener('click', (evt) => {
+      el.addEventListener("click", (evt) => {
         evt.stopPropagation();
         onPinClick(c.id);
       });
@@ -261,13 +302,19 @@
   // owner's chosen one, or reverts to the theme when they have none.
   function applyPinColor(el: HTMLElement, color: string | undefined) {
     if (color) {
-      el.style.setProperty('--pin', color);
-      el.style.setProperty('--pin-light', `color-mix(in srgb, ${color}, white 30%)`);
-      el.style.setProperty('--pin-dark', `color-mix(in srgb, ${color}, black 25%)`);
+      el.style.setProperty("--pin", color);
+      el.style.setProperty(
+        "--pin-light",
+        `color-mix(in srgb, ${color}, white 30%)`,
+      );
+      el.style.setProperty(
+        "--pin-dark",
+        `color-mix(in srgb, ${color}, black 25%)`,
+      );
     } else {
-      el.style.removeProperty('--pin');
-      el.style.removeProperty('--pin-light');
-      el.style.removeProperty('--pin-dark');
+      el.style.removeProperty("--pin");
+      el.style.removeProperty("--pin-light");
+      el.style.removeProperty("--pin-dark");
     }
   }
 </script>

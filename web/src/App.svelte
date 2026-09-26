@@ -19,6 +19,7 @@
   import { route, navigate, handleLinkClick } from './lib/router.svelte';
   import logo from './assets/logo.png';
   import { devTheme } from './lib/dev/devTheme.svelte';
+  import { mapTheme, setMapThemeMode } from './lib/mapTheme.svelte';
   import { adjustLightness } from './lib/dev/colorMath';
   import { themeEditorEnabled } from './lib/dev/testMode';
   import type { Component } from 'svelte';
@@ -164,11 +165,21 @@
     </a>
   </footer>
 
-  <div class="control-stack">
+  <div class="bottom-controls">
     <button class="pill auth-pill" onclick={authState.authenticated ? handleLogout : login}>
       {authState.authenticated ? 'Log out' : 'Log in'}
     </button>
 
+    <button
+      class="pill"
+      onclick={() => setMapThemeMode(mapTheme.mode === 'light' ? 'dark' : 'light')}
+      aria-label="Switch map to {mapTheme.mode === 'light' ? 'dark' : 'light'} theme"
+    >
+      {mapTheme.mode === 'light' ? '☾ Dark map' : '☀ Light map'}
+    </button>
+  </div>
+
+  <div class="control-stack">
     {#if authState.authenticated}
       {#if !route.profileUsername}
         <button class="pill mine-toggle" class:active={mineOnly} onclick={toggleMineOnly}>
@@ -230,10 +241,17 @@
 
 <style>
   main {
-    --bottom-bar-height: 48px;
+    /* Includes the home-indicator area on notched phones (with
+       viewport-fit=cover in index.html), so the bar sits above it. */
+    --bottom-bar-height: calc(48px + env(safe-area-inset-bottom, 0px));
     position: relative;
-    width: 100vw;
+    width: 100%;
+    /* 100vh on mobile browsers is the height *without* the address bar, so
+       the bottom of the page ends up hidden behind it — dvh tracks the
+       actually visible viewport. */
     height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
   }
 
   /* The map stops above the bottom bar (rather than running underneath it)
@@ -251,7 +269,7 @@
     height: var(--bottom-bar-height);
     display: flex;
     align-items: center;
-    padding: 0 16px;
+    padding: 0 16px env(safe-area-inset-bottom, 0px);
     background: var(--surface-solid);
     color: var(--surface-fg);
     border-top: 1px solid var(--border-soft);
@@ -298,8 +316,23 @@
     z-index: 5;
     top: 12px;
     left: 12px;
+    /* Leave room for maplibre's zoom/locate buttons in the top-right. */
+    max-width: calc(100% - 80px);
     display: flex;
     flex-direction: column;
+    gap: 8px;
+  }
+
+  /* Sits on the map just above the bottom bar, on the left — maplibre's
+     attribution lives in the bottom-right corner. */
+  .bottom-controls {
+    position: absolute;
+    z-index: 5;
+    left: 12px;
+    bottom: calc(var(--bottom-bar-height) + 12px);
+    max-width: calc(100% - 80px);
+    display: flex;
+    flex-wrap: wrap;
     gap: 8px;
   }
 
@@ -312,7 +345,9 @@
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
     color: var(--surface-fg);
-    padding: 7px 14px;
+    /* Mobile first: finger-sized tap targets, tightened for mouse users below. */
+    min-height: 40px;
+    padding: 8px 14px;
     border-radius: var(--radius-sm);
     font-size: 0.85rem;
     box-shadow: var(--shadow-sm);
@@ -322,9 +357,16 @@
       background 150ms var(--ease);
   }
 
-  .pill:hover {
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-md);
+  @media (hover: hover) and (pointer: fine) {
+    .pill {
+      min-height: 0;
+      padding: 7px 14px;
+    }
+
+    .pill:hover {
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-md);
+    }
   }
 
   .control-stack > .pill {
@@ -353,7 +395,8 @@
 
   .banner {
     top: 12px;
-    right: 12px;
+    right: 56px;
+    max-width: calc(100% - 68px);
     color: var(--color-danger);
     font-weight: 600;
   }
