@@ -51,7 +51,7 @@ func (h *Handlers) GetMine(w http.ResponseWriter, r *http.Request) {
 	claims, _ := authmw.ClaimsFromContext(r.Context())
 	p, err := h.repo.Ensure(r.Context(), claims.Sub, usernameCandidates(claims))
 	if err != nil {
-		log.Printf("ensure profile for %s: %v", claims.Sub, err)
+		log.Printf("profile: ensure failed for %s: %v", claims, err)
 		http.Error(w, "failed to load profile", http.StatusInternalServerError)
 		return
 	}
@@ -67,6 +67,7 @@ func (h *Handlers) UpdateMine(w http.ResponseWriter, r *http.Request) {
 	claims, _ := authmw.ClaimsFromContext(r.Context())
 	// Makes sure a row exists to update, for a client that skipped GetMine.
 	if _, err := h.repo.Ensure(r.Context(), claims.Sub, usernameCandidates(claims)); err != nil {
+		log.Printf("profile: ensure failed for %s: %v", claims, err)
 		http.Error(w, "failed to load profile", http.StatusInternalServerError)
 		return
 	}
@@ -94,6 +95,7 @@ func (h *Handlers) UpdateMine(w http.ResponseWriter, r *http.Request) {
 		if files := r.MultipartForm.File["avatar"]; len(files) > 0 {
 			name, err := h.images.Save(files[0])
 			if err != nil {
+				log.Printf("profile: failed to save avatar for %s: %v", claims, err)
 				http.Error(w, fmt.Sprintf("failed to save avatar: %v", err), http.StatusBadRequest)
 				return
 			}
@@ -106,16 +108,18 @@ func (h *Handlers) UpdateMine(w http.ResponseWriter, r *http.Request) {
 		if in.AvatarFilePath != nil {
 			h.deleteImage(*in.AvatarFilePath)
 		}
-		log.Printf("update profile for %s: %v", claims.Sub, err)
+		log.Printf("profile: update failed for %s: %v", claims, err)
 		http.Error(w, "failed to update profile", http.StatusInternalServerError)
 		return
 	}
 	if oldAvatar != nil {
 		h.deleteImage(*oldAvatar)
 	}
+	log.Printf("profile: updated %s fields=%s", claims, in.describe())
 
 	p, err := h.repo.GetBySub(r.Context(), claims.Sub)
 	if err != nil || p == nil {
+		log.Printf("profile: reload after update failed for %s: %v", claims, err)
 		http.Error(w, "failed to load profile", http.StatusInternalServerError)
 		return
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"slices"
 
 	"github.com/jackc/pgx/v5"
@@ -72,12 +73,15 @@ func (r *Repository) Ensure(ctx context.Context, sub string, candidates []string
 		// ON CONFLICT DO NOTHING (with no target) swallows both a racing
 		// insert for the same sub and a username collision; re-reading by
 		// sub afterwards tells the two apart.
-		_, err := r.pool.Exec(ctx, `
+		tag, err := r.pool.Exec(ctx, `
 			INSERT INTO profiles (sub, username) VALUES ($1, $2)
 			ON CONFLICT DO NOTHING
 		`, sub, username)
 		if err != nil {
 			return nil, fmt.Errorf("insert profile: %w", err)
+		}
+		if tag.RowsAffected() == 1 {
+			log.Printf("profile: created sub=%s username=%q", sub, username)
 		}
 		if p, err := r.GetBySub(ctx, sub); err != nil || p != nil {
 			return p, err
@@ -100,10 +104,12 @@ func (r *Repository) resync(ctx context.Context, p *Profile, candidates []string
 			return nil, fmt.Errorf("resync username: %w", err)
 		}
 		if tag.RowsAffected() == 1 {
+			log.Printf("profile: resynced username sub=%s username=%q -> %q", p.Sub, p.Username, username)
 			return r.GetBySub(ctx, p.Sub)
 		}
 	}
 	// Keep the old username rather than failing the request.
+	log.Printf("profile: username resync found no free candidate, keeping %q sub=%s candidates=%q", p.Username, p.Sub, candidates)
 	return p, nil
 }
 

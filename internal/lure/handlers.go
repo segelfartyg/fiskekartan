@@ -44,6 +44,8 @@ func (h *Handlers) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	claims, _ := authmw.ClaimsFromContext(r.Context())
+
 	title := r.FormValue("title")
 	if title == "" {
 		http.Error(w, "title is required", http.StatusBadRequest)
@@ -60,6 +62,7 @@ func (h *Handlers) Create(w http.ResponseWriter, r *http.Request) {
 		if files := r.MultipartForm.File["image"]; len(files) > 0 {
 			name, err := h.images.Save(files[0])
 			if err != nil {
+				log.Printf("lure: failed to save image for %s: %v", claims, err)
 				http.Error(w, fmt.Sprintf("failed to save image: %v", err), http.StatusBadRequest)
 				return
 			}
@@ -67,33 +70,36 @@ func (h *Handlers) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	sub, _ := authmw.SubFromContext(r.Context())
 	id, err := h.repo.Create(r.Context(), CreateInput{
-		OwnerSub:      sub,
+		OwnerSub:      claims.Sub,
 		Title:         title,
 		Description:   description,
 		ImageFilePath: imageFilePath,
 	})
 	if err != nil {
+		log.Printf("lure: create failed for %s: %v", claims, err)
 		http.Error(w, "failed to create lure", http.StatusInternalServerError)
 		return
 	}
+	log.Printf("lure: %s created lure %s (title=%q)", claims, id, title)
 
 	writeJSON(w, http.StatusCreated, map[string]string{"id": id})
 }
 
 func (h *Handlers) Delete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	sub, _ := authmw.SubFromContext(r.Context())
+	claims, _ := authmw.ClaimsFromContext(r.Context())
 
-	imagePath, deleted, err := h.repo.Delete(r.Context(), id, sub)
+	imagePath, deleted, err := h.repo.Delete(r.Context(), id, claims.Sub)
 	if err != nil {
+		log.Printf("lure: delete of lure %s failed for %s: %v", id, claims, err)
 		http.Error(w, "failed to delete lure", http.StatusInternalServerError)
 		return
 	}
 	if !deleted {
 		// Never distinguishes "doesn't exist" from "belongs to someone
 		// else" — both look like a 404 to the caller.
+		log.Printf("lure: %s tried to delete lure %s (missing or not owner)", claims, id)
 		http.NotFound(w, r)
 		return
 	}
@@ -104,6 +110,7 @@ func (h *Handlers) Delete(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	log.Printf("lure: %s deleted lure %s", claims, id)
 	w.WriteHeader(http.StatusNoContent)
 }
 

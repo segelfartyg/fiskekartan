@@ -4,6 +4,7 @@ package authmw
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -18,6 +19,15 @@ type Claims struct {
 	Sub               string `json:"sub"`
 	PreferredUsername string `json:"preferred_username"`
 	Name              string `json:"name"`
+}
+
+// String identifies the user in log lines, e.g. `sub=abc123 user="kalle"`.
+func (c Claims) String() string {
+	name := c.PreferredUsername
+	if name == "" {
+		name = c.Name
+	}
+	return fmt.Sprintf("sub=%s user=%q", c.Sub, name)
 }
 
 type contextKey int

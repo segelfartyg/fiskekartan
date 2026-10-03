@@ -100,16 +100,19 @@ func (h *Handlers) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sub, _ := authmw.SubFromContext(r.Context())
-	if c.OwnerSub == nil || *c.OwnerSub != sub {
+	claims, _ := authmw.ClaimsFromContext(r.Context())
+	if c.OwnerSub == nil || *c.OwnerSub != claims.Sub {
+		log.Printf("catch: %s denied delete of catch %s (not owner)", claims, id)
 		http.Error(w, "you can only delete your own catches", http.StatusForbidden)
 		return
 	}
 
 	if err := h.repo.Delete(r.Context(), id); err != nil {
+		log.Printf("catch: delete of catch %s failed for %s: %v", id, claims, err)
 		http.Error(w, "failed to delete catch", http.StatusInternalServerError)
 		return
 	}
+	log.Printf("catch: %s deleted catch %s (species=%q, %d images)", claims, id, c.Species, len(c.Images))
 
 	for _, imageURL := range c.Images {
 		filename := strings.TrimPrefix(imageURL, "/images/")
@@ -182,10 +185,12 @@ func (h *Handlers) Create(w http.ResponseWriter, r *http.Request) {
 	if v := r.FormValue("lure_id"); v != "" {
 		owned, err := h.lures.OwnedBy(r.Context(), v, claims.Sub)
 		if err != nil {
+			log.Printf("catch: lure %s ownership check failed for %s: %v", v, claims, err)
 			http.Error(w, "failed to verify lure", http.StatusInternalServerError)
 			return
 		}
 		if !owned {
+			log.Printf("catch: %s tried to attach lure %s they don't own", claims, v)
 			http.Error(w, "lure_id does not belong to you", http.StatusBadRequest)
 			return
 		}
@@ -221,6 +226,7 @@ func (h *Handlers) Create(w http.ResponseWriter, r *http.Request) {
 	for _, fh := range files {
 		name, err := h.images.Save(fh)
 		if err != nil {
+			log.Printf("catch: failed to save image for %s: %v", claims, err)
 			http.Error(w, fmt.Sprintf("failed to save image: %v", err), http.StatusBadRequest)
 			return
 		}
@@ -229,9 +235,11 @@ func (h *Handlers) Create(w http.ResponseWriter, r *http.Request) {
 
 	id, err := h.repo.Create(r.Context(), in)
 	if err != nil {
+		log.Printf("catch: create failed for %s: %v", claims, err)
 		http.Error(w, "failed to create catch", http.StatusInternalServerError)
 		return
 	}
+	log.Printf("catch: %s created catch %s (species=%q, %d images)", claims, id, species, len(in.ImageFilePaths))
 
 	writeJSON(w, http.StatusCreated, map[string]string{"id": id})
 }

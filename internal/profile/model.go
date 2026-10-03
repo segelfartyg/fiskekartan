@@ -2,6 +2,7 @@ package profile
 
 import (
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -31,6 +32,31 @@ type UpdateInput struct {
 	// RemoveAvatar clears the avatar when AvatarFilePath is nil; otherwise
 	// a nil AvatarFilePath leaves the existing avatar untouched.
 	RemoveAvatar bool
+}
+
+// describe summarizes an update for logging — which fields are set, never
+// their (user-written) contents.
+func (in UpdateInput) describe() string {
+	var fields []string
+	if in.Location != nil {
+		fields = append(fields, "location")
+	}
+	if in.Description != nil {
+		fields = append(fields, "description")
+	}
+	if in.PinColor != nil {
+		fields = append(fields, "pin_color="+*in.PinColor)
+	}
+	switch {
+	case in.AvatarFilePath != nil:
+		fields = append(fields, "avatar=new")
+	case in.RemoveAvatar:
+		fields = append(fields, "avatar=removed")
+	}
+	if len(fields) == 0 {
+		return "[none]"
+	}
+	return "[" + strings.Join(fields, ",") + "]"
 }
 
 const (
