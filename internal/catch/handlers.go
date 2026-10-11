@@ -3,7 +3,6 @@ package catch
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"mime/multipart"
@@ -13,14 +12,14 @@ import (
 	"time"
 
 	"swaren.se/fiskekartan/internal/authmw"
-	"swaren.se/fiskekartan/internal/imagestore"
 )
 
-// ImageStore is satisfied by *imagestore.Store.
+// ImageStore is satisfied by *imagestore.Store — the one for PhotoPrefix,
+// which the public /images route can't reach.
 type ImageStore interface {
 	Save(fh *multipart.FileHeader) (string, error)
 	Delete(filename string) error
-	Open(name string) (content imagestore.ReadSeekCloser, contentType string, modTime time.Time, err error)
+	Serve(w http.ResponseWriter, r *http.Request, name string)
 }
 
 // LureVerifier is satisfied by *lure.Repository — checking ownership here
@@ -34,20 +33,19 @@ type Handlers struct {
 	repo   *Repository
 	images ImageStore
 	lures  LureVerifier
+	photos *PhotoSigner
 }
 
-func NewHandlers(repo *Repository, images ImageStore, lures LureVerifier) *Handlers {
-	return &Handlers{repo: repo, images: images, lures: lures}
+func NewHandlers(repo *Repository, images ImageStore, lures LureVerifier, photos *PhotoSigner) *Handlers {
+	return &Handlers{repo: repo, images: images, lures: lures, photos: photos}
 }
 
+// List returns the catches the caller may see. Behind requireAuth, like
+// every catch route — even public catches are only for logged-in users.
 func (h *Handlers) List(w http.ResponseWriter, r *http.Request) {
+	sub, _ := authmw.SubFromContext(r.Context())
 	var filter ListFilter
 	if r.URL.Query().Get("mine") == "true" {
-		sub, ok := authmw.SubFromContext(r.Context())
-		if !ok {
-			http.Error(w, "must be logged in to filter by mine", http.StatusUnauthorized)
-			return
-		}
 		filter.OwnerSub = &sub
 	}
 	if v := r.URL.Query().Get("user"); v != "" {
@@ -55,17 +53,25 @@ func (h *Handlers) List(w http.ResponseWriter, r *http.Request) {
 		filter.Username = &username
 	}
 
-	list, err := h.repo.List(r.Context(), filter)
+	list, err := h.repo.List(r.Context(), sub, filter)
 	if err != nil {
 		http.Error(w, "failed to list catches", http.StatusInternalServerError)
 		return
 	}
+	for i := range list {
+		if f := list[i].ThumbnailFile; f != nil {
+			u := h.photos.URL(*f)
+			list[i].Thumbnail = &u
+		}
+	}
 	writeJSON(w, http.StatusOK, list)
 }
 
+// Get answers 404 both for a missing catch and one the caller may not see.
 func (h *Handlers) Get(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	c, err := h.repo.Get(r.Context(), id)
+	sub, _ := authmw.SubFromContext(r.Context())
+	c, err := h.repo.Get(r.Context(), sub, id)
 	if err != nil {
 		http.Error(w, "failed to get catch", http.StatusInternalServerError)
 		return
@@ -75,7 +81,9 @@ func (h *Handlers) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sub, _ := authmw.SubFromContext(r.Context())
+	for _, f := range c.ImageFiles {
+		c.Images = append(c.Images, h.photos.URL(f))
+	}
 	resp := CatchResponse{
 		Catch:     *c,
 		OwnedByMe: c.OwnerSub != nil && sub == *c.OwnerSub,
@@ -87,35 +95,74 @@ func (h *Handlers) Get(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func (h *Handlers) Delete(w http.ResponseWriter, r *http.Request) {
+// SetVisibility handles PUT /api/catches/{id}/visibility, with a JSON body
+// like {"visibility": "public"}. Only the owner may change it.
+func (h *Handlers) SetVisibility(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-
-	c, err := h.repo.Get(r.Context(), id)
-	if err != nil {
-		http.Error(w, "failed to load catch", http.StatusInternalServerError)
+	var body struct {
+		Visibility string `json:"visibility"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}
-	if c == nil {
-		http.NotFound(w, r)
+	v, ok := ParseVisibility(body.Visibility)
+	if !ok {
+		http.Error(w, "visibility must be private or public", http.StatusBadRequest)
 		return
 	}
 
 	claims, _ := authmw.ClaimsFromContext(r.Context())
-	if c.OwnerSub == nil || *c.OwnerSub != claims.Sub {
-		log.Printf("catch: %s denied delete of catch %s (not owner)", claims, id)
-		http.Error(w, "you can only delete your own catches", http.StatusForbidden)
+	c, ok := h.loadOwned(w, r, claims, id, "change visibility of")
+	if !ok {
 		return
 	}
+	if err := h.repo.SetVisibility(r.Context(), id, v); err != nil {
+		log.Printf("catch: visibility change of catch %s failed for %s: %v", id, claims, err)
+		http.Error(w, "failed to change visibility", http.StatusInternalServerError)
+		return
+	}
+	log.Printf("catch: %s changed visibility of catch %s from %s to %s", claims, id, c.Visibility, v)
+	w.WriteHeader(http.StatusNoContent)
+}
 
+// loadOwned loads a catch the caller is about to change, answering 404 if
+// they can't see it and 403 if they can but don't own it. ok is false when
+// it has already responded.
+func (h *Handlers) loadOwned(w http.ResponseWriter, r *http.Request, claims authmw.Claims, id, action string) (c *Catch, ok bool) {
+	c, err := h.repo.Get(r.Context(), claims.Sub, id)
+	if err != nil {
+		http.Error(w, "failed to load catch", http.StatusInternalServerError)
+		return nil, false
+	}
+	if c == nil {
+		http.NotFound(w, r)
+		return nil, false
+	}
+	if c.OwnerSub == nil || *c.OwnerSub != claims.Sub {
+		log.Printf("catch: %s denied %s catch %s (not owner)", claims, action, id)
+		http.Error(w, fmt.Sprintf("you can only %s your own catches", action), http.StatusForbidden)
+		return nil, false
+	}
+	return c, true
+}
+
+func (h *Handlers) Delete(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	claims, _ := authmw.ClaimsFromContext(r.Context())
+	c, ok := h.loadOwned(w, r, claims, id, "delete")
+	if !ok {
+		return
+	}
 	if err := h.repo.Delete(r.Context(), id); err != nil {
 		log.Printf("catch: delete of catch %s failed for %s: %v", id, claims, err)
 		http.Error(w, "failed to delete catch", http.StatusInternalServerError)
 		return
 	}
-	log.Printf("catch: %s deleted catch %s (species=%q, %d images)", claims, id, c.Species, len(c.Images))
+	log.Printf("catch: %s deleted catch %s (species=%q, %d images)", claims, id, c.Species, len(c.ImageFiles))
 
-	for _, imageURL := range c.Images {
-		filename := strings.TrimPrefix(imageURL, "/images/")
+	for _, filename := range c.ImageFiles {
 		if err := h.images.Delete(filename); err != nil {
 			log.Printf("failed to delete image file %q for catch %s: %v", filename, id, err)
 		}
@@ -124,24 +171,19 @@ func (h *Handlers) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *Handlers) ServeImage(w http.ResponseWriter, r *http.Request) {
+// ServePhoto handles GET /catch-images/{name}, for the signed URLs that
+// List and Get hand out (see PhotoSigner). No login needed: the signature
+// is the proof the caller may see the catch.
+func (h *Handlers) ServePhoto(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-
-	content, contentType, modTime, err := h.images.Open(name)
-	if err != nil {
-		if errors.Is(err, imagestore.ErrNotFound) {
-			http.NotFound(w, r)
-			return
-		}
-		http.Error(w, "failed to load image", http.StatusInternalServerError)
+	q := r.URL.Query()
+	if !h.photos.Valid(name, q.Get("exp"), q.Get("sig")) {
+		http.Error(w, "invalid or expired photo link", http.StatusForbidden)
 		return
 	}
-	defer content.Close()
-
-	if contentType != "" {
-		w.Header().Set("Content-Type", contentType)
-	}
-	http.ServeContent(w, r, name, modTime, content)
+	// Private: shared caches mustn't hand it to someone else.
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+	h.images.Serve(w, r, name)
 }
 
 func (h *Handlers) Create(w http.ResponseWriter, r *http.Request) {
@@ -175,6 +217,16 @@ func (h *Handlers) Create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		caughtAt = parsed
+	}
+
+	visibility := VisibilityPrivate
+	if v := r.FormValue("visibility"); v != "" {
+		parsed, ok := ParseVisibility(v)
+		if !ok {
+			http.Error(w, "visibility must be private or public", http.StatusBadRequest)
+			return
+		}
+		visibility = parsed
 	}
 
 	// Guaranteed present — this route stays behind requireAuth. The owner
@@ -214,6 +266,7 @@ func (h *Handlers) Create(w http.ResponseWriter, r *http.Request) {
 		WeatherPressureHPa:   parseOptionalFloat(r.FormValue("weather_pressure_hpa")),
 		WeatherCloudCover:    parseOptionalString(r.FormValue("weather_cloud_cover")),
 		WaterTempC:           parseOptionalFloat(r.FormValue("water_temp_c")),
+		Visibility:           visibility,
 		OwnerSub:             claims.Sub,
 		OwnerDisplayName:     firstNonEmpty(claims.PreferredUsername, claims.Name),
 		LureID:               lureID,
@@ -239,7 +292,7 @@ func (h *Handlers) Create(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to create catch", http.StatusInternalServerError)
 		return
 	}
-	log.Printf("catch: %s created catch %s (species=%q, %d images)", claims, id, species, len(in.ImageFilePaths))
+	log.Printf("catch: %s created catch %s (species=%q, visibility=%s, %d images)", claims, id, species, visibility, len(in.ImageFilePaths))
 
 	writeJSON(w, http.StatusCreated, map[string]string{"id": id})
 }

@@ -1,3 +1,15 @@
+/// Who besides the owner sees a catch, mirroring `Visibility` in
+/// web/src/lib/api.ts. Friends is reserved for later; until then the
+/// backend treats it like private.
+enum CatchVisibility {
+  private,
+  friends,
+  public;
+
+  static CatchVisibility parse(String? value) =>
+      values.asNameMap()[value] ?? CatchVisibility.private;
+}
+
 /// Mirrors `CatchDetail` in web/src/lib/api.ts — what GET /api/catches/{id}
 /// returns.
 class CatchDetail {
@@ -21,6 +33,7 @@ class CatchDetail {
         for (final image in json['images'] as List<dynamic>? ?? [])
           image as String,
       ],
+      visibility = CatchVisibility.parse(json['visibility'] as String?),
       ownedByMe = json['owned_by_me'] as bool? ?? false,
       hasOwner = json['has_owner'] as bool? ?? false,
       loggedBy = json['logged_by'] as String?,
@@ -44,8 +57,10 @@ class CatchDetail {
   final String? weatherCloudCover;
   final double? waterTempC;
 
-  /// Backend-relative image paths (`/images/...`); resolve with apiUrl.
+  /// Backend-relative, signed photo URLs (`/catch-images/...?exp=…&sig=…`);
+  /// resolve with apiUrl, or show with catchPhoto.
   final List<String> images;
+  final CatchVisibility visibility;
   final bool ownedByMe;
   final bool hasOwner;
   final String? loggedBy;

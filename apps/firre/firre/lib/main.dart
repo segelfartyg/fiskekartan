@@ -80,7 +80,11 @@ class _HomeShellState extends State<HomeShell> {
       body: IndexedStack(
         index: _selectedIndex,
         children: [
-          MapPage(api: _api, catchesChanged: _catchesChanged),
+          MapPage(
+            auth: widget.auth,
+            api: _api,
+            catchesChanged: _catchesChanged,
+          ),
           CatchPage(
             auth: widget.auth,
             api: _api,

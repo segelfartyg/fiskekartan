@@ -31,7 +31,7 @@ class CatchSummary {
   final double longitude;
   final DateTime caughtAt;
 
-  /// Backend-relative image path (`/images/...`); resolve with apiUrl.
+  /// Backend-relative, signed URL of the first photo; see CatchDetail.images.
   final String? thumbnail;
 
   /// The owner's chosen pin color, or null for the theme default.

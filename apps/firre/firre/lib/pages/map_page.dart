@@ -6,18 +6,29 @@ import 'package:maplibre_gl/maplibre_gl.dart';
 
 import '../api/api_client.dart';
 import '../api/catch_summary.dart';
+import '../auth/auth_service.dart';
 import '../map/map_style.dart';
 import '../theme/app_theme.dart';
 import '../map/pin_image.dart';
+import '../map/saved_camera.dart';
 import '../util/location.dart';
+import '../widgets/catch_photo.dart';
+import '../widgets/login_prompt.dart';
 import 'catch_detail_sheet.dart';
 
 const _catchesSourceId = 'catches';
 const _catchesLayerId = 'catch-pins';
 
 class MapPage extends StatefulWidget {
-  const MapPage({super.key, required this.api, required this.catchesChanged});
+  const MapPage({
+    super.key,
+    required this.auth,
+    required this.api,
+    required this.catchesChanged,
+  });
 
+  /// Catches are only for logged-in users, so the pins follow the login.
+  final AuthService auth;
   final ApiClient api;
 
   /// Fires when catches were added elsewhere in the app, to reload the pins.
@@ -38,6 +49,10 @@ class _MapPageState extends State<MapPage> {
   // What the current style already has, since a style load starts empty.
   final _pinImages = <String>{};
   bool _pinLayerAdded = false;
+  // Where the map was left last run; the map waits for it to be read.
+  CameraPosition? _initialCamera;
+  // Each pin's first photo, by catch id, to start loading it on tap.
+  var _thumbnails = <String, String>{};
 
   @override
   void initState() {
@@ -49,6 +64,10 @@ class _MapPageState extends State<MapPage> {
       }
     });
     widget.catchesChanged.addListener(_loadPins);
+    widget.auth.addListener(_onAuthChanged);
+    loadSavedCamera().then((camera) {
+      if (mounted) setState(() => _initialCamera = camera);
+    });
   }
 
   @override
@@ -58,12 +77,24 @@ class _MapPageState extends State<MapPage> {
       oldWidget.catchesChanged.removeListener(_loadPins);
       widget.catchesChanged.addListener(_loadPins);
     }
+    if (oldWidget.auth != widget.auth) {
+      oldWidget.auth.removeListener(_onAuthChanged);
+      widget.auth.addListener(_onAuthChanged);
+    }
   }
 
   @override
   void dispose() {
     widget.catchesChanged.removeListener(_loadPins);
+    widget.auth.removeListener(_onAuthChanged);
     super.dispose();
+  }
+
+  // Shows or hides the login overlay, and loads or clears the pins.
+  void _onAuthChanged() {
+    if (!mounted) return;
+    setState(() {});
+    _loadPins();
   }
 
   // Runs on every style load — including after Android recreates the map's
@@ -80,7 +111,7 @@ class _MapPageState extends State<MapPage> {
     if (controller == null) return;
     final List<CatchSummary> catches;
     try {
-      catches = await widget.api.listCatches();
+      catches = widget.auth.isLoggedIn ? await widget.api.listCatches() : [];
     } catch (e) {
       debugPrint('map: loading catches failed: $e');
       if (mounted) {
@@ -90,6 +121,10 @@ class _MapPageState extends State<MapPage> {
       }
       return;
     }
+    _thumbnails = {
+      for (final c in catches)
+        if (c.thumbnail != null) c.id: c.thumbnail!,
+    };
 
     // One image per distinct color, shared by every pin that uses it.
     for (final color in {for (final c in catches) c.pinColor}) {
@@ -154,6 +189,17 @@ class _MapPageState extends State<MapPage> {
 
   Future<void> _openCatch(String id) async {
     final messenger = ScaffoldMessenger.of(context);
+    // The thumbnail is the catch's first photo, so its download can start
+    // now instead of after the sheet has fetched the catch's details. The
+    // sheet shows its own error if it fails.
+    final thumbnail = _thumbnails[id];
+    if (thumbnail != null) {
+      precacheImage(
+        catchPhoto(context, thumbnail),
+        context,
+        onError: (_, _) {},
+      );
+    }
     final deleted = await showCatchDetailSheet(
       context,
       api: widget.api,
@@ -164,6 +210,12 @@ class _MapPageState extends State<MapPage> {
       const SnackBar(content: Text('Fångsten är borttagen.')),
     );
     await _loadPins();
+  }
+
+  // Saved whenever the map comes to rest, so the next start opens here.
+  Future<void> _onCameraIdle() async {
+    final camera = await _controller?.queryCameraPosition();
+    if (camera != null) await saveCamera(camera);
   }
 
   Future<void> _centerOnMyLocation() async {
@@ -198,7 +250,8 @@ class _MapPageState extends State<MapPage> {
       future: mapStyleFor(mapTheme),
       builder: (context, snapshot) {
         final style = snapshot.data;
-        if (style == null) {
+        final initialCamera = _initialCamera;
+        if (style == null || initialCamera == null) {
           return const Center(child: CircularProgressIndicator());
         }
         return Stack(
@@ -210,10 +263,8 @@ class _MapPageState extends State<MapPage> {
                 controller.onFeatureTapped.add(_onFeatureTapped);
               },
               onStyleLoadedCallback: _onStyleLoaded,
-              initialCameraPosition: const CameraPosition(
-                target: swedenCenter,
-                zoom: swedenMinZoom,
-              ),
+              initialCameraPosition: initialCamera,
+              onCameraIdle: _onCameraIdle,
               cameraTargetBounds: CameraTargetBounds(swedenBounds),
               minMaxZoomPreference: const MinMaxZoomPreference(
                 swedenMinZoom,
@@ -222,6 +273,20 @@ class _MapPageState extends State<MapPage> {
               attributionButtonPosition: AttributionButtonPosition.bottomRight,
               myLocationEnabled: _hasLocationPermission,
             ),
+            if (!widget.auth.isLoggedIn)
+              // The map stays visible behind it, dimmed.
+              Positioned.fill(
+                child: ColoredBox(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.surface.withValues(alpha: 0.85),
+                  child: LoginPrompt(
+                    auth: widget.auth,
+                    icon: Icons.phishing_outlined,
+                    message: 'Logga in för att se dina fångster på kartan.',
+                  ),
+                ),
+              ),
             Positioned(
               right: 16,
               // Clears the attribution button in the bottom-right corner.

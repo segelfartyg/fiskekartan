@@ -10,7 +10,7 @@
 </script>
 
 <section class="card" aria-label={`${profile.username}'s profile`}>
-  <button class="close" onclick={onClose} aria-label="Back to everyone's catches">×</button>
+  <button class="close" onclick={onClose} aria-label="Back to the map">×</button>
 
   <div class="header">
     {#if profile.avatar}

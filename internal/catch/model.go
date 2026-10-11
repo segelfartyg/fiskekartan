@@ -2,27 +2,52 @@ package catch
 
 import "time"
 
+// Visibility is who besides the owner may see a catch.
+type Visibility string
+
+const (
+	VisibilityPrivate Visibility = "private"
+	// VisibilityFriends is reserved for the friend feature: the schema
+	// already allows it, but clients can't pick it yet and it's treated
+	// like private (see visibleTo in repository.go).
+	VisibilityFriends Visibility = "friends"
+	VisibilityPublic  Visibility = "public"
+)
+
+// ParseVisibility accepts the visibilities a client may currently choose.
+func ParseVisibility(s string) (Visibility, bool) {
+	switch v := Visibility(s); v {
+	case VisibilityPrivate, VisibilityPublic:
+		return v, true
+	}
+	return "", false
+}
+
 type Catch struct {
-	ID                   string    `json:"id"`
-	Species              string    `json:"species"`
-	WeightGrams          *int      `json:"weight_grams,omitempty"`
-	LengthCM             *float64  `json:"length_cm,omitempty"`
-	BaitLure             *string   `json:"bait_lure,omitempty"`
-	Technique            *string   `json:"technique,omitempty"`
-	WaterType            *string   `json:"water_type,omitempty"`
-	Latitude             float64   `json:"latitude"`
-	Longitude            float64   `json:"longitude"`
-	CaughtAt             time.Time `json:"caught_at"`
-	Notes                *string   `json:"notes,omitempty"`
-	WeatherTempC         *float64  `json:"weather_temp_c,omitempty"`
-	WeatherWindSpeedMS   *float64  `json:"weather_wind_speed_ms,omitempty"`
-	WeatherWindDirection *string   `json:"weather_wind_direction,omitempty"`
-	WeatherPressureHPa   *float64  `json:"weather_pressure_hpa,omitempty"`
-	WeatherCloudCover    *string   `json:"weather_cloud_cover,omitempty"`
-	WaterTempC           *float64  `json:"water_temp_c,omitempty"`
-	CreatedAt            time.Time `json:"created_at"`
-	UpdatedAt            time.Time `json:"updated_at"`
-	Images               []string  `json:"images,omitempty"`
+	ID                   string     `json:"id"`
+	Species              string     `json:"species"`
+	WeightGrams          *int       `json:"weight_grams,omitempty"`
+	LengthCM             *float64   `json:"length_cm,omitempty"`
+	BaitLure             *string    `json:"bait_lure,omitempty"`
+	Technique            *string    `json:"technique,omitempty"`
+	WaterType            *string    `json:"water_type,omitempty"`
+	Latitude             float64    `json:"latitude"`
+	Longitude            float64    `json:"longitude"`
+	CaughtAt             time.Time  `json:"caught_at"`
+	Notes                *string    `json:"notes,omitempty"`
+	WeatherTempC         *float64   `json:"weather_temp_c,omitempty"`
+	WeatherWindSpeedMS   *float64   `json:"weather_wind_speed_ms,omitempty"`
+	WeatherWindDirection *string    `json:"weather_wind_direction,omitempty"`
+	WeatherPressureHPa   *float64   `json:"weather_pressure_hpa,omitempty"`
+	WeatherCloudCover    *string    `json:"weather_cloud_cover,omitempty"`
+	WaterTempC           *float64   `json:"water_temp_c,omitempty"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+	Visibility           Visibility `json:"visibility"`
+	// Images are signed, expiring URLs, filled in by the handler from
+	// ImageFiles — photos are only reachable by someone who could see the
+	// catch.
+	Images []string `json:"images,omitempty"`
 
 	// Raw ownership fields — never serialized directly. Get responds with
 	// CatchResponse instead, which derives what the viewer is actually
@@ -31,6 +56,8 @@ type Catch struct {
 	OwnerDisplayName *string `json:"-"`
 	OwnerUsername    *string `json:"-"`
 	LureID           *string `json:"-"`
+	// ImageFiles are the photos' object names in the catch photo store.
+	ImageFiles []string `json:"-"`
 }
 
 // CatchResponse is what GET /api/catches/{id} actually returns: the raw
@@ -53,13 +80,15 @@ type CatchSummary struct {
 	Latitude  float64   `json:"latitude"`
 	Longitude float64   `json:"longitude"`
 	CaughtAt  time.Time `json:"caught_at"`
-	Thumbnail *string   `json:"thumbnail,omitempty"`
+	// Thumbnail is a signed URL for ThumbnailFile, filled in by the handler.
+	Thumbnail     *string `json:"thumbnail,omitempty"`
+	ThumbnailFile *string `json:"-"`
 	// PinColor is the owner's chosen map pin color, if they've set one.
 	PinColor *string `json:"pin_color,omitempty"`
 }
 
 // ListFilter restricts List to one owner, by sub or by profile username.
-// Both nil means everyone's catches.
+// Both nil means every catch the viewer may see.
 type ListFilter struct {
 	OwnerSub *string
 	Username *string
@@ -82,6 +111,7 @@ type CreateInput struct {
 	WeatherPressureHPa   *float64
 	WeatherCloudCover    *string
 	WaterTempC           *float64
+	Visibility           Visibility
 	ImageFilePaths       []string
 	OwnerSub             string
 	OwnerDisplayName     *string

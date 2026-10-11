@@ -17,8 +17,15 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-// List returns catch summaries, optionally restricted to a single owner.
-func (r *Repository) List(ctx context.Context, filter ListFilter) ([]CatchSummary, error) {
+// visibleTo is the one place that decides who may see a catch: a SQL
+// condition on catches c for the viewer's sub, which every query using it
+// passes as $1. Friends will be joined in here, as an EXISTS over
+// friendships for visibility = 'friends'.
+const visibleTo = `(c.owner_sub = $1 OR c.visibility = 'public')`
+
+// List returns summaries of the catches viewerSub may see, optionally
+// restricted to a single owner.
+func (r *Repository) List(ctx context.Context, viewerSub string, filter ListFilter) ([]CatchSummary, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT c.id, c.species, c.latitude, c.longitude, c.caught_at,
 		       (SELECT ci.file_path FROM catch_images ci
@@ -26,10 +33,11 @@ func (r *Repository) List(ctx context.Context, filter ListFilter) ([]CatchSummar
 		       p.pin_color
 		FROM catches c
 		LEFT JOIN profiles p ON p.sub = c.owner_sub
-		WHERE ($1::text IS NULL OR c.owner_sub = $1)
-		  AND ($2::text IS NULL OR p.username = $2)
+		WHERE `+visibleTo+`
+		  AND ($2::text IS NULL OR c.owner_sub = $2)
+		  AND ($3::text IS NULL OR p.username = $3)
 		ORDER BY c.caught_at DESC
-	`, filter.OwnerSub, filter.Username)
+	`, viewerSub, filter.OwnerSub, filter.Username)
 	if err != nil {
 		return nil, err
 	}
@@ -38,13 +46,8 @@ func (r *Repository) List(ctx context.Context, filter ListFilter) ([]CatchSummar
 	result := []CatchSummary{}
 	for rows.Next() {
 		var s CatchSummary
-		var thumb *string
-		if err := rows.Scan(&s.ID, &s.Species, &s.Latitude, &s.Longitude, &s.CaughtAt, &thumb, &s.PinColor); err != nil {
+		if err := rows.Scan(&s.ID, &s.Species, &s.Latitude, &s.Longitude, &s.CaughtAt, &s.ThumbnailFile, &s.PinColor); err != nil {
 			return nil, err
-		}
-		if thumb != nil {
-			url := "/images/" + *thumb
-			s.Thumbnail = &url
 		}
 		result = append(result, s)
 	}
@@ -54,8 +57,9 @@ func (r *Repository) List(ctx context.Context, filter ListFilter) ([]CatchSummar
 	return result, nil
 }
 
-// Get returns nil, nil if no catch with the given id exists.
-func (r *Repository) Get(ctx context.Context, id string) (*Catch, error) {
+// Get returns nil, nil if no catch with the given id exists, or viewerSub
+// may not see it — the two look the same to the caller on purpose.
+func (r *Repository) Get(ctx context.Context, viewerSub, id string) (*Catch, error) {
 	var c Catch
 	err := r.pool.QueryRow(ctx, `
 		SELECT c.id, c.species, c.weight_grams, c.length_cm, c.bait_lure, c.technique, c.water_type,
@@ -63,17 +67,17 @@ func (r *Repository) Get(ctx context.Context, id string) (*Catch, error) {
 		       c.weather_temp_c, c.weather_wind_speed_ms, c.weather_wind_direction,
 		       c.weather_pressure_hpa, c.weather_cloud_cover, c.water_temp_c,
 		       c.created_at, c.updated_at, c.owner_sub, c.owner_display_name, c.lure_id,
-		       p.username
+		       c.visibility, p.username
 		FROM catches c
 		LEFT JOIN profiles p ON p.sub = c.owner_sub
-		WHERE c.id = $1
-	`, id).Scan(
+		WHERE c.id = $2 AND `+visibleTo+`
+	`, viewerSub, id).Scan(
 		&c.ID, &c.Species, &c.WeightGrams, &c.LengthCM, &c.BaitLure, &c.Technique, &c.WaterType,
 		&c.Latitude, &c.Longitude, &c.CaughtAt, &c.Notes,
 		&c.WeatherTempC, &c.WeatherWindSpeedMS, &c.WeatherWindDirection,
 		&c.WeatherPressureHPa, &c.WeatherCloudCover, &c.WaterTempC,
 		&c.CreatedAt, &c.UpdatedAt, &c.OwnerSub, &c.OwnerDisplayName, &c.LureID,
-		&c.OwnerUsername,
+		&c.Visibility, &c.OwnerUsername,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -92,13 +96,28 @@ func (r *Repository) Get(ctx context.Context, id string) (*Catch, error) {
 		if err := rows.Scan(&path); err != nil {
 			return nil, err
 		}
-		c.Images = append(c.Images, "/images/"+path)
+		c.ImageFiles = append(c.ImageFiles, path)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
 	return &c, nil
+}
+
+// SetVisibility changes a catch's visibility. The caller checks ownership.
+func (r *Repository) SetVisibility(ctx context.Context, id string, v Visibility) error {
+	_, err := r.pool.Exec(ctx, `UPDATE catches SET visibility = $2, updated_at = now() WHERE id = $1`, id, v)
+	return err
+}
+
+// AllImageFiles lists every catch photo's object name.
+func (r *Repository) AllImageFiles(ctx context.Context) ([]string, error) {
+	rows, err := r.pool.Query(ctx, `SELECT file_path FROM catch_images`)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
 }
 
 // Delete removes a catch (and its catch_images rows, via ON DELETE CASCADE).
@@ -121,15 +140,15 @@ func (r *Repository) Create(ctx context.Context, in CreateInput) (string, error)
 			latitude, longitude, caught_at, notes,
 			weather_temp_c, weather_wind_speed_ms, weather_wind_direction,
 			weather_pressure_hpa, weather_cloud_cover, water_temp_c,
-			owner_sub, owner_display_name, lure_id
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+			owner_sub, owner_display_name, lure_id, visibility
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
 		RETURNING id
 	`,
 		in.Species, in.WeightGrams, in.LengthCM, in.BaitLure, in.Technique, in.WaterType,
 		in.Latitude, in.Longitude, in.CaughtAt, in.Notes,
 		in.WeatherTempC, in.WeatherWindSpeedMS, in.WeatherWindDirection,
 		in.WeatherPressureHPa, in.WeatherCloudCover, in.WaterTempC,
-		in.OwnerSub, in.OwnerDisplayName, in.LureID,
+		in.OwnerSub, in.OwnerDisplayName, in.LureID, in.Visibility,
 	).Scan(&id)
 	if err != nil {
 		return "", fmt.Errorf("insert catch: %w", err)

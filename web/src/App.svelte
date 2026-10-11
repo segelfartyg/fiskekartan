@@ -11,6 +11,7 @@
     getCatch,
     getProfile,
     getMyProfile,
+    ApiError,
     type CatchSummary,
     type CatchDetail,
     type Profile,
@@ -70,6 +71,13 @@
       });
   });
 
+  // Catches are only for logged-in users, so the pins load (or clear) as
+  // the login state settles — auth initializes after the first render.
+  $effect(() => {
+    void authState.authenticated;
+    untrack(() => refresh());
+  });
+
   // Re-runs on every route change, including the initial page load.
   $effect(() => {
     const username = route.profileUsername;
@@ -97,6 +105,10 @@
   }
 
   async function refresh() {
+    if (!authState.authenticated) {
+      catches = [];
+      return;
+    }
     try {
       catches = route.profileUsername
         ? await listCatches({ user: route.profileUsername })
@@ -122,7 +134,13 @@
       selectedCatch = await getCatch(id);
       newCatchLocation = null;
     } catch (err) {
-      loadError = err instanceof Error ? err.message : 'Failed to load catch';
+      if (err instanceof ApiError && err.status === 404) {
+        // Deleted, or made private by its owner, since the pins loaded.
+        loadError = 'That catch is no longer available';
+        refresh();
+      } else {
+        loadError = err instanceof Error ? err.message : 'Failed to load catch';
+      }
     }
   }
 
@@ -145,12 +163,9 @@
 
   function handleLogout() {
     logout();
-    // Otherwise a lingering "mine only" filter would keep requesting
-    // ?mine=true with no token and 401 forever.
-    if (mineOnly) {
-      mineOnly = false;
-      refresh();
-    }
+    mineOnly = false;
+    selectedCatch = null;
+    catches = [];
   }
 </script>
 
@@ -160,7 +175,7 @@
   </div>
 
   <footer class="bottom-bar">
-    <a href="/" class="logo-link" onclick={handleLinkClick} aria-label="Fiskekartan – show everyone's catches">
+    <a href="/" class="logo-link" onclick={handleLinkClick} aria-label="Fiskekartan – back to the map">
       <img src={logo} alt="Fiskekartan" class="logo" />
     </a>
   </footer>
@@ -180,10 +195,13 @@
   </div>
 
   <div class="control-stack">
+    {#if authState.ready && !authState.authenticated}
+      <button class="pill login-prompt" onclick={login}>Log in to see your catches</button>
+    {/if}
     {#if authState.authenticated}
       {#if !route.profileUsername}
         <button class="pill mine-toggle" class:active={mineOnly} onclick={toggleMineOnly}>
-          {mineOnly ? 'Showing: mine only' : 'Showing: everyone'}
+          {mineOnly ? 'Showing: mine only' : 'Showing: mine + public'}
         </button>
       {/if}
       <button class="pill lurebox-pill" onclick={() => (showLurebox = true)}>My lures</button>
@@ -201,7 +219,7 @@
         onClose={() => navigate('/')}
       />
     {:else if route.profileUsername}
-      <button class="pill" onclick={() => navigate('/')}>← Show everyone's catches</button>
+      <button class="pill" onclick={() => navigate('/')}>← Back to the map</button>
     {/if}
   </div>
 
@@ -387,6 +405,7 @@
     margin-left: -6px;
   }
 
+  .login-prompt,
   .mine-toggle.active {
     background: linear-gradient(135deg, var(--color-primary-light), var(--color-primary-dark));
     color: white;

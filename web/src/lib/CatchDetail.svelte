@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { deleteCatch, ApiError, type CatchDetail } from './api';
+  import { untrack } from 'svelte';
+  import { deleteCatch, setCatchVisibility, ApiError, type CatchDetail, type Visibility } from './api';
   import { login } from './auth.svelte';
   import { handleLinkClick } from './router.svelte';
 
@@ -9,9 +10,34 @@
     onDeleted,
   }: { catchData: CatchDetail; onClose: () => void; onDeleted: () => void } = $props();
 
+  // Local, so changing it doesn't write to the parent's catch.
+  let visibility: Visibility = $state(untrack(() => catchData.visibility));
+  let savingVisibility = $state(false);
   let deleting = $state(false);
   let error = $state('');
   let needsLogin = $state(false);
+
+  async function handleVisibilityChange(e: Event) {
+    const next = (e.currentTarget as HTMLSelectElement).value as Visibility;
+    const previous = visibility;
+    visibility = next;
+    savingVisibility = true;
+    error = '';
+    needsLogin = false;
+    try {
+      await setCatchVisibility(catchData.id, next);
+    } catch (err) {
+      visibility = previous;
+      if (err instanceof ApiError && err.status === 401) {
+        error = 'You need to log in to change who can see this catch.';
+        needsLogin = true;
+      } else {
+        error = err instanceof Error ? err.message : 'Failed to change visibility';
+      }
+    } finally {
+      savingVisibility = false;
+    }
+  }
 
   async function handleDelete() {
     if (!confirm(`Delete this catch (${catchData.species})? This cannot be undone.`)) return;
@@ -82,6 +108,14 @@
     {/if}
 
     {#if catchData.owned_by_me}
+      <label class="visibility">
+        Who can see it
+        <select value={visibility} onchange={handleVisibilityChange} disabled={savingVisibility}>
+          <option value="private">Only me</option>
+          <option value="public">Everyone logged in</option>
+        </select>
+      </label>
+
       <div class="actions">
         <button type="button" class="delete" onclick={handleDelete} disabled={deleting}>
           {deleting ? 'Deleting…' : 'Delete catch'}
@@ -220,6 +254,25 @@
     color: inherit;
     cursor: pointer;
     padding: 0;
+  }
+
+  .visibility {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 20px;
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .visibility select {
+    font: inherit;
+    font-weight: 400;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-soft);
+    background: transparent;
+    color: inherit;
   }
 
   .actions {

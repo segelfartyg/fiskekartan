@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"embed"
 	"io/fs"
 	"log"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/joho/godotenv"
+	"swaren.se/fiskekartan/internal/catch"
 	"swaren.se/fiskekartan/internal/db"
 	"swaren.se/fiskekartan/internal/imagestore"
 	"swaren.se/fiskekartan/internal/server"
@@ -47,6 +49,10 @@ func main() {
 		log.Fatalf("connect to image store: %v", err)
 	}
 
+	if err := catch.MovePhotos(ctx, catch.NewRepository(pool), imgStore, imgStore.WithPrefix(catch.PhotoPrefix)); err != nil {
+		log.Fatalf("move catch photos: %v", err)
+	}
+
 	oidcProvider, err := oidc.NewProvider(ctx, mustEnv("OIDC_ISSUER_URL"))
 	if err != nil {
 		log.Fatalf("connect to OIDC issuer: %v", err)
@@ -61,6 +67,7 @@ func main() {
 	srv, err := server.New(
 		pool,
 		imgStore,
+		catch.NewPhotoSigner(photoSigningKey()),
 		verifier,
 		webDist,
 	)
@@ -73,6 +80,17 @@ func main() {
 	if err := http.ListenAndServe(addr, srv); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// photoSigningKey is the key catch photo URLs are signed with. Without
+// CATCH_PHOTO_SIGNING_KEY a random one is used, which works for a single
+// replica but breaks the photo links clients already hold on every restart.
+func photoSigningKey() []byte {
+	if v := os.Getenv("CATCH_PHOTO_SIGNING_KEY"); v != "" {
+		return []byte(v)
+	}
+	log.Printf("CATCH_PHOTO_SIGNING_KEY not set, using a random key: photo links break on restart")
+	return []byte(rand.Text())
 }
 
 func envOrDefault(key, def string) string {

@@ -2,11 +2,11 @@
 
 A self-hosted fish-catch logger: upload a photo, drop a pin on the map, record species/weather/conditions. No external map API keys or cloud services required — the map basemap is served from a self-hosted PMTiles file.
 
-Reading (the map, catch list, images) is always open. Writing (creating or deleting a catch) requires being logged in via Keycloak.
+Catches are only for logged-in users (via Keycloak). Each catch is private by default — only its owner sees it — or public, visible to every logged-in user. Profiles (`/{username}`) stay public.
 
 ## One-time setup: getting a map basemap
 
-Both fish photos and the map's `sweden.pmtiles` basemap file live in the same MinIO bucket — `internal/imagestore` proxies both through the backend generically (`GET /images/{name}` and `GET /tiles/{name}`), so the object store never needs to be reachable from the browser, and there's no local-disk or PVC dependency at all.
+Both fish photos and the map's `sweden.pmtiles` basemap file live in the same MinIO bucket — `internal/imagestore` proxies both through the backend (`GET /images/{name}` and `GET /tiles/{name}`), so the object store never needs to be reachable from the browser, and there's no local-disk or PVC dependency at all. Catch photos are kept apart under `catches/` and served only through signed, expiring links (`GET /catch-images/{name}?exp=…&sig=…`) that the API hands to whoever may see the catch; set `CATCH_PHOTO_SIGNING_KEY` to a long random string so those links survive restarts.
 
 1. Install the `pmtiles` CLI:
    ```bash
@@ -50,7 +50,7 @@ MINIO_USE_SSL=false                   # set true if MinIO is behind TLS
 
 ## One-time setup: login (Keycloak)
 
-Writes (`POST`/`DELETE /api/catches`) require a valid access token from Keycloak; reads never do. This needs a **public** OIDC client (no client secret — it lives in the browser) registered in your realm:
+Every `/api/catches` route requires a valid access token from Keycloak; profiles and weather don't. This needs a **public** OIDC client (no client secret — it lives in the browser) registered in your realm:
 
 1. In the Keycloak admin console, in your realm: **Clients → Create client** → Client ID e.g. `fiskekartan`, **Client authentication: OFF**, **Standard flow: ON**, Direct access grants/Implicit flow: OFF.
 2. Redirect URIs: your production frontend origin (e.g. `https://fiskekartan.example.com/*`) plus `http://localhost:5173/*` and `http://localhost:8080/*` for local dev. Web origins: `+`.
@@ -74,7 +74,7 @@ VITE_KEYCLOAK_CLIENT_ID=fiskekartan
 This app deploys as a single Kubernetes Deployment (the `chart/` in this repo) into `segel-cluster`, the same way `sms-backend` does:
 
 - **CI** (`.github/workflows/docker.yml`): on every push to `main`, builds this repo's `Dockerfile` and pushes `segelfartyg/fiskekartan:latest` (+ semver tags on `v*` tags) to Docker Hub.
-- **Chart** (`chart/`): one `Deployment` + `Service`, no volumes — everything the app needs (Postgres, MinIO, Keycloak) is external. `DATABASE_URL`/`MINIO_ACCESS_KEY`/`MINIO_SECRET_KEY` come from a Kubernetes Secret via the `HelmRelease`'s `valuesFrom` (never committed here); the rest are plain chart values. See `chart/values.yaml` for the full list.
+- **Chart** (`chart/`): one `Deployment` + `Service`, no volumes — everything the app needs (Postgres, MinIO, Keycloak) is external. `DATABASE_URL`/`MINIO_ACCESS_KEY`/`MINIO_SECRET_KEY`/`CATCH_PHOTO_SIGNING_KEY` come from a Kubernetes Secret via the `HelmRelease`'s `valuesFrom` (never committed here); the rest are plain chart values. See `chart/values.yaml` for the full list.
 - **SegelCluster side**: a `GitRepository` + `HelmRelease` (sourcing `chart/` from this repo) + an `HTTPRoute` for external exposure, matching `sms-backend`'s manifests.
 
 Shipping a change is just `git push` — Flux picks it up from there. There's no local `docker compose up` path anymore; use `go run .` / `npm run dev` (below) for local development instead.

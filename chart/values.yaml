@@ -10,6 +10,10 @@ databaseUrl: ""
 minioEndpoint: ""
 minioAccessKey: ""
 minioSecretKey: ""
+# Signs catch photo URLs (any long random string, e.g. `openssl rand -hex 32`).
+# Optional: empty means a random key per start, which breaks photo links
+# clients already hold on every restart.
+catchPhotoSigningKey: ""
 
 # Non-secret config, passed straight through as env vars.
 minioBucket: "fiskekartan-images"

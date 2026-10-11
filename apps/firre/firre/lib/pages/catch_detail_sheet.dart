@@ -4,6 +4,8 @@ import '../api/api_client.dart';
 import '../api/catch_detail.dart';
 import '../api/weather.dart';
 import '../util/format.dart';
+import '../widgets/catch_photo.dart';
+import '../widgets/visibility_picker.dart';
 
 /// Opens a bottom sheet with a catch's details, like the web app's
 /// CatchDetail panel when a pin is clicked. Resolves to true if the user
@@ -51,7 +53,36 @@ class _CatchDetailViewState extends State<_CatchDetailView> {
   // Held in state so a rebuild (e.g. dragging the sheet) doesn't refetch.
   late final Future<CatchDetail> _future = widget.future;
   bool _deleting = false;
-  String? _deleteError;
+  // Set once the owner changes it, overriding the loaded detail's.
+  CatchVisibility? _visibility;
+  bool _savingVisibility = false;
+  // From deleting or changing visibility, whichever failed last.
+  String? _actionError;
+
+  Future<void> _setVisibility(CatchDetail c, CatchVisibility v) async {
+    final previous = _visibility ?? c.visibility;
+    setState(() {
+      _visibility = v;
+      _savingVisibility = true;
+      _actionError = null;
+    });
+    try {
+      await widget.api.setCatchVisibility(c.id, v);
+    } catch (e) {
+      debugPrint('catch detail: changing visibility failed: $e');
+      if (!mounted) return;
+      setState(() {
+        _visibility = previous;
+        _actionError = switch (e) {
+          ApiException(statusCode: 401) =>
+            'Du behöver logga in igen för att ändra vem som ser fångsten.',
+          _ => 'Kunde inte ändra vem som ser fångsten.',
+        };
+      });
+    } finally {
+      if (mounted) setState(() => _savingVisibility = false);
+    }
+  }
 
   Future<void> _delete(CatchDetail c) async {
     final confirmed = await showDialog<bool>(
@@ -80,7 +111,7 @@ class _CatchDetailViewState extends State<_CatchDetailView> {
 
     setState(() {
       _deleting = true;
-      _deleteError = null;
+      _actionError = null;
     });
     try {
       await widget.api.deleteCatch(c.id);
@@ -90,7 +121,7 @@ class _CatchDetailViewState extends State<_CatchDetailView> {
       if (!mounted) return;
       setState(() {
         _deleting = false;
-        _deleteError = switch (e) {
+        _actionError = switch (e) {
           ApiException(statusCode: 401) =>
             'Du behöver logga in igen för att ta bort fångsten.',
           ApiException(statusCode: 403) =>
@@ -183,8 +214,8 @@ class _CatchDetailViewState extends State<_CatchDetailView> {
               separatorBuilder: (_, _) => const SizedBox(width: 8),
               itemBuilder: (context, i) => ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child: Image.network(
-                  apiUrl(c.images[i]),
+                child: Image(
+                  image: catchPhoto(context, c.images[i]),
                   fit: BoxFit.cover,
                   // A lone photo fills the width; several scroll sideways.
                   width: c.images.length == 1
@@ -227,10 +258,20 @@ class _CatchDetailViewState extends State<_CatchDetailView> {
               ],
             ),
           ),
-        if (_deleteError != null) ...[
+        // Only the owner can change it, as on the web (and the backend checks).
+        if (c.ownedByMe) ...[
+          const SizedBox(height: 24),
+          Text('Vem kan se den', style: theme.textTheme.titleSmall),
+          const SizedBox(height: 8),
+          VisibilityPicker(
+            value: _visibility ?? c.visibility,
+            onChanged: _savingVisibility ? null : (v) => _setVisibility(c, v),
+          ),
+        ],
+        if (_actionError != null) ...[
           const SizedBox(height: 16),
           Text(
-            _deleteError!,
+            _actionError!,
             style: theme.textTheme.bodyMedium?.copyWith(
               color: theme.colorScheme.error,
             ),

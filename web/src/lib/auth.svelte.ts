@@ -6,8 +6,14 @@ const keycloak = new Keycloak({
   clientId: import.meta.env.VITE_KEYCLOAK_CLIENT_ID,
 });
 
-export const authState: { authenticated: boolean; sub: string | null; displayName: string | null } =
-  $state({ authenticated: false, sub: null, displayName: null });
+export const authState: {
+  // False until initAuth has found out whether there's a session, so the UI
+  // can tell "logged out" from "not known yet".
+  ready: boolean;
+  authenticated: boolean;
+  sub: string | null;
+  displayName: string | null;
+} = $state({ ready: false, authenticated: false, sub: null, displayName: null });
 
 function syncIdentity() {
   authState.sub = keycloak.subject ?? null;
@@ -34,15 +40,19 @@ keycloak.onAuthRefreshError = () => {
 };
 
 export async function initAuth(): Promise<void> {
-  // No onLoad ('check-sso'/'login-required') — reads stay open, so we never
-  // force or silently attempt a login on page load. Login only happens when
-  // the user explicitly clicks "Log in".
-  const authenticated = await keycloak.init({
-    pkceMethod: 'S256',
-    checkLoginIframe: false,
-  });
-  authState.authenticated = authenticated;
-  if (authenticated) syncIdentity();
+  // No onLoad ('check-sso'/'login-required') — profiles stay public, so we
+  // never force or silently attempt a login on page load. Login only
+  // happens when the user explicitly clicks "Log in".
+  try {
+    const authenticated = await keycloak.init({
+      pkceMethod: 'S256',
+      checkLoginIframe: false,
+    });
+    authState.authenticated = authenticated;
+    if (authenticated) syncIdentity();
+  } finally {
+    authState.ready = true;
+  }
 }
 
 export function login(): void {

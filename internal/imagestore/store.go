@@ -9,6 +9,7 @@ import (
 	"io"
 	"mime"
 	"mime/multipart"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"time"
@@ -42,6 +43,9 @@ type ReadSeekCloser interface {
 type Store struct {
 	client *minio.Client
 	bucket string
+	// prefix namespaces this Store's objects within the bucket (see
+	// WithPrefix); names passed in and handed out never include it.
+	prefix string
 }
 
 func New(endpoint, accessKey, secretKey, bucket string, useSSL bool) (*Store, error) {
@@ -65,6 +69,17 @@ func New(endpoint, accessKey, secretKey, bucket string, useSSL bool) (*Store, er
 	}
 
 	return &Store{client: client, bucket: bucket}, nil
+}
+
+// WithPrefix returns a Store for the objects under prefix in the same
+// bucket, e.g. "catches/" — keeping a group of objects apart from what the
+// public /images route can reach.
+func (s *Store) WithPrefix(prefix string) *Store {
+	return &Store{client: s.client, bucket: s.bucket, prefix: s.prefix + prefix}
+}
+
+func (s *Store) key(name string) string {
+	return s.prefix + name
 }
 
 // Save uploads a file under a random object name and returns that name (not
@@ -91,7 +106,7 @@ func (s *Store) Save(fh *multipart.FileHeader) (string, error) {
 		contentType = "application/octet-stream"
 	}
 
-	_, err = s.client.PutObject(context.Background(), s.bucket, name, src, fh.Size, minio.PutObjectOptions{
+	_, err = s.client.PutObject(context.Background(), s.bucket, s.key(name), src, fh.Size, minio.PutObjectOptions{
 		ContentType: contentType,
 	})
 	if err != nil {
@@ -108,7 +123,30 @@ func (s *Store) Delete(name string) error {
 	if name != filepath.Base(name) {
 		return fmt.Errorf("invalid image name %q", name)
 	}
-	return s.client.RemoveObject(context.Background(), s.bucket, name, minio.RemoveObjectOptions{})
+	return s.client.RemoveObject(context.Background(), s.bucket, s.key(name), minio.RemoveObjectOptions{})
+}
+
+// MoveIn moves the object named name from src into s, under the same name.
+// It's a no-op for an object that was already moved.
+func (s *Store) MoveIn(ctx context.Context, src *Store, name string) error {
+	if name != filepath.Base(name) {
+		return fmt.Errorf("invalid image name %q", name)
+	}
+	_, err := s.client.StatObject(ctx, s.bucket, s.key(name), minio.StatObjectOptions{})
+	if err == nil {
+		return nil
+	}
+	if minio.ToErrorResponse(err).Code != "NoSuchKey" {
+		return err
+	}
+	_, err = s.client.CopyObject(ctx,
+		minio.CopyDestOptions{Bucket: s.bucket, Object: s.key(name)},
+		minio.CopySrcOptions{Bucket: src.bucket, Object: src.key(name)},
+	)
+	if err != nil {
+		return err
+	}
+	return src.client.RemoveObject(ctx, src.bucket, src.key(name), minio.RemoveObjectOptions{})
 }
 
 // Open streams an object back for serving through the backend, along with
@@ -118,7 +156,7 @@ func (s *Store) Open(name string) (ReadSeekCloser, string, time.Time, error) {
 		return nil, "", time.Time{}, fmt.Errorf("invalid image name %q", name)
 	}
 
-	obj, err := s.client.GetObject(context.Background(), s.bucket, name, minio.GetObjectOptions{})
+	obj, err := s.client.GetObject(context.Background(), s.bucket, s.key(name), minio.GetObjectOptions{})
 	if err != nil {
 		return nil, "", time.Time{}, err
 	}
@@ -133,6 +171,26 @@ func (s *Store) Open(name string) (ReadSeekCloser, string, time.Time, error) {
 	}
 
 	return obj, stat.ContentType, stat.LastModified, nil
+}
+
+// Serve streams the named object as the response, with Range support. Any
+// access control is up to the caller.
+func (s *Store) Serve(w http.ResponseWriter, r *http.Request, name string) {
+	content, contentType, modTime, err := s.Open(name)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, "failed to load image", http.StatusInternalServerError)
+		return
+	}
+	defer content.Close()
+
+	if contentType != "" {
+		w.Header().Set("Content-Type", contentType)
+	}
+	http.ServeContent(w, r, name, modTime, content)
 }
 
 func randomFilename(ext string) (string, error) {

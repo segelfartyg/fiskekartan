@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { createCatch, listMyLures, fetchWeather, ApiError, type Lure } from './api';
+  import { createCatch, listMyLures, fetchWeather, ApiError, type Lure, type Visibility } from './api';
   import { authState, login } from './auth.svelte';
 
   let {
@@ -32,6 +32,7 @@
   let waterTempC: number | undefined = $state(undefined);
   let caughtAt = $state(toLocalDateTimeInput(new Date()));
   let files: FileList | undefined = $state();
+  let visibility: Visibility = $state('private');
 
   let submitting = $state(false);
   let error = $state('');
@@ -115,6 +116,7 @@
       setIfPresent(form, 'weather_pressure_hpa', weatherPressureHpa);
       setIfPresent(form, 'weather_cloud_cover', weatherCloudCover);
       setIfPresent(form, 'water_temp_c', waterTempC);
+      form.set('visibility', visibility);
       if (files) {
         for (const file of files) form.append('images', file);
       }
@@ -241,6 +243,14 @@
     <label>
       Photos
       <input type="file" accept="image/*" multiple bind:files />
+    </label>
+
+    <label>
+      Who can see it
+      <select bind:value={visibility}>
+        <option value="private">Only me</option>
+        <option value="public">Everyone logged in</option>
+      </select>
     </label>
 
     <div class="actions">

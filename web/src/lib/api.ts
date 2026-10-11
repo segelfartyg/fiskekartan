@@ -19,7 +19,11 @@ export interface CatchSummary {
   pin_color?: string;
 }
 
+/** Who besides the owner sees a catch. 'friends' is reserved for later. */
+export type Visibility = 'private' | 'friends' | 'public';
+
 export interface CatchDetail extends CatchSummary {
+  visibility: Visibility;
   weight_grams?: number;
   length_cm?: number;
   bait_lure?: string;
@@ -75,7 +79,7 @@ export async function listCatches(opts?: { mine?: boolean; user?: string }): Pro
   const res = await fetch(query ? `/api/catches?${query}` : '/api/catches', {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
-  if (!res.ok) throw new Error('Failed to load catches');
+  if (!res.ok) throw new ApiError(res.status, 'Failed to load catches');
   return res.json();
 }
 
@@ -84,8 +88,24 @@ export async function getCatch(id: string): Promise<CatchDetail> {
   const res = await fetch(`/api/catches/${id}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
-  if (!res.ok) throw new Error('Failed to load catch');
+  if (!res.ok) throw new ApiError(res.status, 'Failed to load catch');
   return res.json();
+}
+
+export async function setCatchVisibility(id: string, visibility: Visibility): Promise<void> {
+  const token = await getToken();
+  const res = await fetch(`/api/catches/${id}/visibility`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ visibility }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new ApiError(res.status, text || 'Failed to change visibility');
+  }
 }
 
 export async function createCatch(form: FormData): Promise<{ id: string }> {

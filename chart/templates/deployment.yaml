@@ -40,6 +40,11 @@ spec:
                 secretKeyRef:
                   name: {{ include "fiskekartan.fullname" . }}
                   key: MINIO_SECRET_KEY
+            - name: CATCH_PHOTO_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "fiskekartan.fullname" . }}
+                  key: CATCH_PHOTO_SIGNING_KEY
             - name: MINIO_BUCKET
               value: {{ .Values.minioBucket | quote }}
             - name: MINIO_USE_SSL

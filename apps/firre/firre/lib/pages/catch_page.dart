@@ -6,12 +6,14 @@ import 'package:image_picker/image_picker.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 
 import '../api/api_client.dart';
+import '../api/catch_detail.dart';
 import '../api/lure.dart';
 import '../api/weather.dart';
 import '../auth/auth_service.dart';
 import '../util/format.dart';
 import '../util/location.dart';
 import '../widgets/login_prompt.dart';
+import '../widgets/visibility_picker.dart';
 import 'location_picker_page.dart';
 
 // Photos are scaled down before upload — phone camera originals are often
@@ -75,6 +77,7 @@ class _CatchPageState extends State<CatchPage> {
   DateTime? _caughtAt;
   String? _cloudCover;
   String? _lureId;
+  CatchVisibility _visibility = CatchVisibility.private;
   List<Lure> _lures = [];
   bool _luresLoaded = false;
 
@@ -311,6 +314,7 @@ class _CatchPageState extends State<CatchPage> {
     put('weather_pressure_hpa', _parseDecimal(_pressure.text));
     put('weather_cloud_cover', _cloudCover);
     put('water_temp_c', _parseDecimal(_waterTemp.text));
+    put('visibility', _visibility.name);
 
     setState(() => _saving = true);
     try {
@@ -348,6 +352,7 @@ class _CatchPageState extends State<CatchPage> {
       _caughtAt = null;
       _cloudCover = null;
       _lureId = null;
+      _visibility = CatchVisibility.private;
       _autoFilled.clear();
       _autoCloudCover = null;
       _weatherStatus = _WeatherStatus.idle;
@@ -579,6 +584,13 @@ class _CatchPageState extends State<CatchPage> {
           ),
           const SizedBox(height: 24),
           _buildPhotos(context),
+          const SizedBox(height: 24),
+          Text('Vem kan se den', style: theme.textTheme.titleSmall),
+          const SizedBox(height: 8),
+          VisibilityPicker(
+            value: _visibility,
+            onChanged: _saving ? null : (v) => setState(() => _visibility = v),
+          ),
           if (_error != null) ...[
             const SizedBox(height: 16),
             Text(

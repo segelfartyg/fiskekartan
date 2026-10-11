@@ -15,6 +15,7 @@ String _catchJson({required bool ownedByMe}) => jsonEncode({
   'latitude': 59.4,
   'longitude': 18.0,
   'caught_at': '2026-09-27T13:09:00Z',
+  'visibility': 'private',
   'owned_by_me': ownedByMe,
   'has_owner': true,
   'logged_by_username': 'someone',
@@ -73,6 +74,32 @@ void main() {
     expect(find.text('Gädda'), findsNothing);
   });
 
+  testWidgets('owner can make the catch public', (tester) async {
+    final requests = <String>[];
+    final api = ApiClient(
+      AuthService(),
+      httpClient: MockClient((request) async {
+        requests.add('${request.method} ${request.url.path} ${request.body}');
+        return request.method == 'PUT'
+            ? http.Response('', 204)
+            : http.Response(
+                _catchJson(ownedByMe: true),
+                200,
+                headers: {'content-type': 'application/json; charset=utf-8'},
+              );
+      }),
+    );
+    await openSheet(tester, api);
+
+    await tester.tap(find.text('Alla inloggade'));
+    await tester.pumpAndSettle();
+
+    expect(requests, [
+      'GET /api/catches/c1 ',
+      'PUT /api/catches/c1/visibility {"visibility":"public"}',
+    ]);
+  });
+
   testWidgets('no delete button on someone else\'s catch', (tester) async {
     final api = ApiClient(
       AuthService(),
@@ -88,5 +115,6 @@ void main() {
     expect(find.text('Gädda'), findsOneWidget);
     expect(find.text('Loggad av @someone'), findsOneWidget);
     expect(find.text('Ta bort fångst'), findsNothing);
+    expect(find.text('Vem kan se den'), findsNothing);
   });
 }

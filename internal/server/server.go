@@ -19,25 +19,27 @@ import (
 
 // New builds the full HTTP handler: the JSON API, image/tile serving, and
 // the embedded Svelte frontend.
-func New(pool *pgxpool.Pool, imgStore *imagestore.Store, verifier *oidc.IDTokenVerifier, webDist fs.FS) (http.Handler, error) {
+func New(pool *pgxpool.Pool, imgStore *imagestore.Store, photoSigner *catch.PhotoSigner, verifier *oidc.IDTokenVerifier, webDist fs.FS) (http.Handler, error) {
 	lureRepo := lure.NewRepository(pool)
 	lureHandlers := lure.NewHandlers(lureRepo, imgStore)
 
 	repo := catch.NewRepository(pool)
-	handlers := catch.NewHandlers(repo, imgStore, lureRepo)
+	handlers := catch.NewHandlers(repo, imgStore.WithPrefix(catch.PhotoPrefix), lureRepo, photoSigner)
 
 	profileHandlers := profile.NewHandlers(profile.NewRepository(pool), imgStore)
 
 	weatherHandlers := weather.NewHandlers(smhi.NewClient())
 
 	requireAuth := authmw.RequireAuth(verifier)
-	optionalAuth := authmw.OptionalAuth(verifier)
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /api/catches", withMiddleware(optionalAuth(handlers.List)))
-	mux.HandleFunc("GET /api/catches/{id}", withMiddleware(optionalAuth(handlers.Get)))
+	// Catches are only ever shown to logged-in users, filtered by their
+	// visibility (see catch.visibleTo).
+	mux.HandleFunc("GET /api/catches", withMiddleware(requireAuth(handlers.List)))
+	mux.HandleFunc("GET /api/catches/{id}", withMiddleware(requireAuth(handlers.Get)))
 	mux.HandleFunc("POST /api/catches", withMiddleware(requireAuth(handlers.Create)))
+	mux.HandleFunc("PUT /api/catches/{id}/visibility", withMiddleware(requireAuth(handlers.SetVisibility)))
 	mux.HandleFunc("DELETE /api/catches/{id}", withMiddleware(requireAuth(handlers.Delete)))
 
 	mux.HandleFunc("GET /api/lures", withMiddleware(requireAuth(lureHandlers.List)))
@@ -51,11 +53,15 @@ func New(pool *pgxpool.Pool, imgStore *imagestore.Store, verifier *oidc.IDTokenV
 	mux.HandleFunc("GET /api/weather", withMiddleware(weatherHandlers.Get))
 
 	// Proxied through the backend (rather than presigned MinIO URLs) so the
-	// object store never needs to be reachable from the browser. The same
-	// handler serves both — it's just generic bucket-object streaming, and
-	// the map tile file lives in the same bucket as photos.
-	mux.HandleFunc("GET /images/{name}", withMiddleware(handlers.ServeImage))
-	mux.HandleFunc("GET /tiles/{name}", withMiddleware(handlers.ServeImage))
+	// object store never needs to be reachable from the browser. Avatars,
+	// lure photos and the map tile file sit at the bucket root and are
+	// public; catch photos sit under catch.PhotoPrefix and need a signed URL.
+	serveRoot := func(w http.ResponseWriter, r *http.Request) {
+		imgStore.Serve(w, r, r.PathValue("name"))
+	}
+	mux.HandleFunc("GET /images/{name}", withMiddleware(serveRoot))
+	mux.HandleFunc("GET /tiles/{name}", withMiddleware(serveRoot))
+	mux.HandleFunc("GET /catch-images/{name}", withMiddleware(handlers.ServePhoto))
 
 	mux.Handle("GET /", spaHandler(webDist))
 

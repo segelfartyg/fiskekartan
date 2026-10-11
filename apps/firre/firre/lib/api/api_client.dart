@@ -38,8 +38,8 @@ class ApiClient {
     return token == null ? {} : {'Authorization': 'Bearer $token'};
   }
 
-  /// Everyone's catches, as pins for the map. The token is sent when logged
-  /// in, like the web app, though the list is the same either way.
+  /// The catches the logged-in user may see (their own, and others' public
+  /// ones), as pins for the map. Answers 401 when logged out.
   Future<List<CatchSummary>> listCatches() async {
     final res = await _http.get(
       Uri.parse(apiUrl('/api/catches')),
@@ -55,8 +55,8 @@ class ApiClient {
     ];
   }
 
-  /// One catch's full details, for when its pin is tapped. Sending the token
-  /// is what makes the backend fill in owned_by_me.
+  /// One catch's full details, for when its pin is tapped. 404 both for a
+  /// deleted catch and one the user may no longer see.
   Future<CatchDetail> getCatch(String id) async {
     final res = await _http.get(
       Uri.parse(apiUrl('/api/catches/${Uri.encodeComponent(id)}')),
@@ -89,6 +89,18 @@ class ApiClient {
       throw ApiException(res.statusCode, res.body);
     }
     return (jsonDecode(res.body) as Map<String, dynamic>)['id'] as String;
+  }
+
+  /// Changes who can see one of the logged-in user's own catches.
+  Future<void> setCatchVisibility(String id, CatchVisibility visibility) async {
+    final res = await _http.put(
+      Uri.parse(apiUrl('/api/catches/${Uri.encodeComponent(id)}/visibility')),
+      headers: {...await _headers(), 'Content-Type': 'application/json'},
+      body: jsonEncode({'visibility': visibility.name}),
+    );
+    if (res.statusCode != 204) {
+      throw ApiException(res.statusCode, res.body);
+    }
   }
 
   /// Deletes one of the logged-in user's own catches, photos included. The
