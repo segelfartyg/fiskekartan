@@ -7,7 +7,9 @@
 {{- end }}
 
 {{- define "fiskekartan.labels" -}}
-helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+{{- /* Flux's Revision strategy versions the chart like 0.1.0+<sha>, and
+     "+" isn't allowed in a label value. */}}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{ include "fiskekartan.selectorLabels" . }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
