@@ -33,6 +33,7 @@ export default defineConfig({
     proxy: {
       '/api': 'http://localhost:8080',
       '/images': 'http://localhost:8080',
+      '/catch-images': 'http://localhost:8080',
       '/tiles': 'http://localhost:8080',
     },
   },
