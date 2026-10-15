@@ -23,8 +23,8 @@ const _revocationEndpoint = '$_issuer/protocol/openid-connect/revoke';
 const _refreshTokenKey = 'auth_refresh_token';
 const _idTokenKey = 'auth_id_token';
 
-/// Keycloak login state for the app. Like the web app, reading needs no
-/// login; it only happens when the user taps "Logga in".
+/// Keycloak login state for the app. Like the web app, login only happens
+/// when the user taps "Logga in".
 class AuthService extends ChangeNotifier {
   AuthService({FlutterAppAuth? appAuth, FlutterSecureStorage? storage})
     : _appAuth = appAuth ?? const FlutterAppAuth(),

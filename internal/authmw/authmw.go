@@ -1,5 +1,5 @@
-// Package authmw gates write endpoints behind a valid Keycloak-issued bearer
-// token, while leaving read endpoints untouched.
+// Package authmw verifies Keycloak-issued bearer tokens and makes their
+// claims available to handlers.
 package authmw
 
 import (
